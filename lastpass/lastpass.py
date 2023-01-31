@@ -141,17 +141,19 @@ class Lastpass:
             response.raise_for_status()
         return response.ok
 
-    def get_secret_blob(self):
+    @property
+    def secrets(self):
         url = 'https://lastpass.com/getaccts.php?mobile=1&b64=1&hash=0.0&hasplugin=3.0.23&requestsrc=android'
         response = self._session.get(url)
         if not response.ok:
             response.raise_for_status()
-        return Blob(response.content, self._iteration_count, self.username, self.password)
+        container = SecretsContainer(self, response.content, self._iteration_count, self.username, self.password)
+        return container.accounts
 
 
-class Blob:
-    def __init__(self, data, key_iteration_count, username, password):
-        # self.bytes = b64decode(data)
+class SecretsContainer:
+    def __init__(self, lastpass_instance, data, key_iteration_count, username, password):
+        self._lastpass = lastpass_instance
         self.username = username
         self.password = password
         self.key_iteration_count = key_iteration_count
@@ -178,7 +180,7 @@ class Blob:
     @staticmethod
     def read_size(stream):
         """Reads a chunk or an item ID."""
-        return Blob.read_uint32(stream)
+        return SecretsContainer.read_uint32(stream)
 
     @staticmethod
     def read_payload(stream, size):
@@ -196,12 +198,12 @@ class Blob:
         #   0004: 4
         #   0008: 0xDE 0xAD 0xBE 0xEF
         #   000C: --- Next chunk ---
-        return Chunk(Blob.read_id(stream), Blob.read_payload(stream, Blob.read_size(stream)))
+        return Chunk(SecretsContainer.read_id(stream), SecretsContainer.read_payload(stream, SecretsContainer.read_size(stream)))
 
     @staticmethod
     def chunk_data(data):
-        chunks = Blob.extract_chunks(data)
-        if not Blob.is_complete(chunks):
+        chunks = SecretsContainer.extract_chunks(data)
+        if not SecretsContainer.is_complete(chunks):
             raise ServerError('Blob is truncated')
         return chunks
     @staticmethod
@@ -214,8 +216,7 @@ class Blob:
         length = stream.tell()
         stream.seek(current_pos, 0)
         while stream.tell() < length:
-            chunks.append(Blob.read_chunk(stream))
-
+            chunks.append(SecretsContainer.read_chunk(stream))
         return chunks
 
     def parse_accounts(self, data):
@@ -228,7 +229,7 @@ class Blob:
         for i in chunks:
             if i.id == b'ACCT':
                 # TODO: Put shared folder name as group in the account
-                account = parse_ACCT(i, key)
+                account = parse_ACCT(i, key, self._lastpass)
                 if account:
                     accounts.append(account)
             elif i.id == b'PRIK':
@@ -241,14 +242,24 @@ class Blob:
 
 
 class Account(object):
-    def __init__(self, id, name, username, password, url, group, notes=None):
-        self.id = id
-        self.name = name
-        self.username = username
-        self.password = password
-        self.url = url
-        self.group = group
-        self.notes = notes
+    def __init__(self, lastpass_instance, id, name, username, password, url, group, notes=None):
+        self._lastpass = lastpass_instance
+        self.id = id.decode('utf-8')
+        self.name = name.decode('utf-8')
+        self.username = username.decode('utf-8')
+        self.password = password.decode('utf-8')
+        self.url = url.decode('utf-8')
+        self.group = group.decode('utf-8')
+        self.notes = notes.decode('utf-8')
+
+    @property
+    def history(self):
+        url = f'https://lastpass.com/lmiapi/accounts/{self.id}/history/note'
+        response = self._lastpass._session.get(url)
+        if not response.ok:
+            response.raise_for_status()
+        return response.json().get('history')
+
 
 
 class Chunk(object):
@@ -259,11 +270,8 @@ class Chunk(object):
     def __eq__(self, other):
         return self.id == other.id and self.payload == other.payload
 
-    def __repr__(self):
-        return f'{self.id} {self.payload}'
 
-
-def parse_ACCT(chunk, encryption_key):
+def parse_ACCT(chunk, encryption_key, lastpass_instance):
     """
     Parses an account chunk, decrypts and creates an Account object.
     May return nil when the chunk does not represent an account.
@@ -293,7 +301,7 @@ def parse_ACCT(chunk, encryption_key):
             username = parsed.get('username', username)
             password = parsed.get('password', password)
 
-    return Account(id, name, username, password, url, group, notes)
+    return Account(lastpass_instance, id, name, username, password, url, group, notes)
 
 
 def parse_PRIK(chunk, encryption_key):
@@ -370,7 +378,7 @@ def read_item(stream):
     #   0000: 4
     #   0004: 0xDE 0xAD 0xBE 0xEF
     #   0008: --- Next item ---
-    return Blob.read_payload(stream, Blob.read_size(stream))
+    return SecretsContainer.read_payload(stream, SecretsContainer.read_size(stream))
 
 
 def skip_item(stream, times=1):
