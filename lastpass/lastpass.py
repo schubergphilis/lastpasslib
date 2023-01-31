@@ -222,20 +222,20 @@ class Blob:
         data = b64decode(data)
         chunks = self.chunk_data(data)
         accounts = []
-        key = Lastpass.make_key(self.username, self.password, self.key_iteration_count)
+        encryption_key = Lastpass.make_key(self.username, self.password, self.key_iteration_count)
+        key = encryption_key
         rsa_private_key = None
         for i in chunks:
-            print(i)
             if i.id == b'ACCT':
                 # TODO: Put shared folder name as group in the account
                 account = parse_ACCT(i, key)
                 if account:
                     accounts.append(account)
             elif i.id == b'PRIK':
-                rsa_private_key = parse_PRIK(i, key)
+                rsa_private_key = parse_PRIK(i, encryption_key)
             elif i.id == b'SHAR':
                 # After SHAR chunk all the folliwing accounts are enrypted with a new key
-                key = parse_SHAR(i, key, rsa_private_key)['encryption_key']
+                key = parse_SHAR(i, encryption_key, rsa_private_key)['encryption_key']
 
         return accounts
 
@@ -327,12 +327,9 @@ def parse_SHAR(chunk, encryption_key, rsa_key):
     # When the key is blank, then there's a RSA encrypted key, which has to
     # be decrypted first before use.
     if not key:
-        print('got no key')
         key = decode_hex(PKCS1_OAEP.new(rsa_key).decrypt(encrypted_key))
     else:
-        print('got a key')
         key = decode_hex(decode_aes256_plain_auto(key, encryption_key))
-    print(key)
     name = decode_aes256_base64_auto(encrypted_name, key)
 
     # TODO: Return an object, not a dict
@@ -467,7 +464,6 @@ def decode_aes256(cipher, iv, data, encryption_key):
     Allowed ciphers are: :ecb, :cbc.
     If for :ecb iv is not used and should be set to "".
     """
-    print(f'encryption key: {encryption_key}')
     if cipher == 'cbc':
         aes = AES.new(encryption_key, AES.MODE_CBC, iv)
     elif cipher == 'ecb':
