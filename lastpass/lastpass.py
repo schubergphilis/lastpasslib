@@ -210,19 +210,18 @@ class Vault:
     @staticmethod
     def _parse_secure_note(notes):
         info = {}
-        for line in notes.split(b'\n'):
-            if any([not line, b':' not in line]):  # blank line,  there is no `:` if generic note
-                continue
+        valid_lines = [line for line in notes.split(b'\n')
+                       if not any([not line, b':' not in line])]
+        key_mapping = {b'NoteType': 'type',
+                       b'Hostname': 'url',
+                       b'Username': 'username',
+                       b'Password': 'password'}
+        for line in valid_lines:
             # Split only once so that strings like "Hostname:host.example.com:80" get interpreted correctly
             key, value = line.split(b':', 1)
-            if key == b'NoteType':
-                info['type'] = value
-            elif key == b'Hostname':
-                info['url'] = value
-            elif key == b'Username':
-                info['username'] = value
-            elif key == b'Password':
-                info['password'] = value
+            entry = key_mapping.get(key)
+            if entry:
+                info[entry] = value
         return info
 
     @staticmethod
