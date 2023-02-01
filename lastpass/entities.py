@@ -3,13 +3,31 @@ from base64 import b64decode
 from dataclasses import dataclass
 from io import BytesIO
 
+from dateutil.parser import parse
+
 from .lastpassexceptions import ServerError
 
 
 @dataclass
-class Chunk(object):
+class History:
+    date: str
+    value: str
+    person: str
+
+    @property
+    def datetime(self):
+        return parse(self.date)
+
+@dataclass
+class Chunk:
     id: bytes
     payload: bytes
+
+
+@dataclass
+class SharedFolder:
+    id: str
+    name: str
 
 
 class Stream:
@@ -90,7 +108,7 @@ class ChunkStream:
 
 
 class Account(object):
-    def __init__(self, lastpass_instance, id, name, username, password, url, group, notes=None):
+    def __init__(self, lastpass_instance, id, name, username, password, url, group, notes=None, shared_folder=None):
         self._lastpass = lastpass_instance
         self.id = id.decode('utf-8')
         self.name = name.decode('utf-8')
@@ -99,11 +117,22 @@ class Account(object):
         self.url = url.decode('utf-8')
         self.group = group.decode('utf-8')
         self.notes = notes.decode('utf-8')
+        self.shared_folder = shared_folder
+        self._history = None
 
     @property
     def history(self):
-        url = f'https://lastpass.com/lmiapi/accounts/{self.id}/history/note'
-        response = self._lastpass._session.get(url)
-        if not response.ok:
-            response.raise_for_status()
-        return response.json().get('history')
+        if self._history is None:
+            url = f'{self._lastpass.host}/lmiapi/accounts/{self.id}/history/note'
+            params = {'sharedFolderId': self.shared_folder.id} if self.shared_folder else {}
+            response = self._lastpass._session.get(url, params=params)
+            if not response.ok:
+                response.raise_for_status()
+            self._history = [History(*data.values()) for data in response.json().get('history')]
+        return self._history
+
+    def get_latest_update_person(self):
+        try:
+            return self.history[-1].person
+        except IndexError:
+            return None

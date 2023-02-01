@@ -13,8 +13,7 @@ from Crypto.Util import number
 from binascii import hexlify
 from requests import Session
 
-
-from .entities import ChunkStream, Stream, Account
+from .entities import ChunkStream, Stream, Account, SharedFolder
 from .lastpassexceptions import (InvalidMfa,
                                  InvalidPassword,
                                  MfaRequired,
@@ -38,9 +37,6 @@ class LastpassMock:
         self.host = f'https://{domain}'
         self.username = username
         self.iteration_count = 100100
-
-
-
 
 
 class Lastpass:
@@ -151,7 +147,7 @@ class Vault:
         return self._hash
 
     @property
-    def _data(self):
+    def _blob(self):
         params = {'mobile': 1,
                   'b64': 1,
                   'hash': 0.0,
@@ -166,7 +162,7 @@ class Vault:
     @property
     def secrets(self):
         if not self._accounts:
-            self._accounts = self._decrypt_blob(self._data)
+            self._accounts = self._decrypt_blob(self._blob)
         return self._accounts
 
     def _decrypt_blob(self, data):
@@ -175,117 +171,101 @@ class Vault:
         encryption_key = self.key
         key = encryption_key
         rsa_private_key = None
+        shared_folder = None
         for chunk in stream.chunks:
             if chunk.id == b'ACCT':
-                # TODO: Put shared folder name as group in the account
-                account = parse_ACCT(chunk, key, self._lastpass)
-                if account:
-                    accounts.append(account)
+                accounts.append(self.parse_account(chunk, key, self._lastpass, shared_folder))
             elif chunk.id == b'PRIK':
-                rsa_private_key = parse_PRIK(chunk, encryption_key)
+                rsa_private_key = self.decrypt_rsa_key(chunk, encryption_key)
             elif chunk.id == b'SHAR':
-                # After SHAR chunk all the following accounts are encrypted with a new key
-                key = parse_SHAR(chunk, encryption_key, rsa_private_key)['encryption_key']
+                # After SHAR chunk all the following accounts are encrypted with a new key.
+                # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
+                shared_folder_data, key = self.parse_shared_folder(chunk, encryption_key, rsa_private_key)
+                shared_folder = SharedFolder(*shared_folder_data)
         return accounts
 
+    @staticmethod
+    def parse_account(chunk, encryption_key, lastpass_instance, shared_folder):
+        """
+        Parses an account chunk, decrypts and creates an Account object.
+        May return nil when the chunk does not represent an account.
+        All secure notes are ACCTs but not all of them store account
+        information.
+        """
+        # TODO: Make a test case that covers secure note account
 
-def parse_ACCT(chunk, encryption_key, lastpass_instance):
-    """
-    Parses an account chunk, decrypts and creates an Account object.
-    May return nil when the chunk does not represent an account.
-    All secure notes are ACCTs but not all of them store account
-    information.
-    """
-    # TODO: Make a test case that covers secure note account
+        stream = Stream(chunk.payload)
+        id = stream.next_item()
+        name = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        group = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        url = decode_hex(stream.next_item())
+        notes = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        stream.skip_item(2)
+        username = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        password = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        stream.skip_item(2)
+        secure_note = stream.next_item()
 
-    stream = Stream(chunk.payload)
-    id = stream.next_item()
-    name = decode_aes256_plain_auto(stream.next_item(), encryption_key)
-    group = decode_aes256_plain_auto(stream.next_item(), encryption_key)
-    url = decode_hex(stream.next_item())
-    notes = decode_aes256_plain_auto(stream.next_item(), encryption_key)
-    stream.skip_item(2)
-    username = decode_aes256_plain_auto(stream.next_item(), encryption_key)
-    password = decode_aes256_plain_auto(stream.next_item(), encryption_key)
-    stream.skip_item(2)
-    secure_note = stream.next_item()
+        # Parse secure note
+        if secure_note == b'1':
+            info = {}
+            for i in notes.split(b'\n'):
+                if any([not i, b':' not in i]):  # blank line,  there is no `:` if generic note
+                    continue
+                # Split only once so that strings like "Hostname:host.example.com:80"
+                # get interpreted correctly
+                key, value = i.split(b':', 1)
+                if key == b'NoteType':
+                    info['type'] = value
+                elif key == b'Hostname':
+                    info['url'] = value
+                elif key == b'Username':
+                    info['username'] = value
+                elif key == b'Password':
+                    info['password'] = value
+            parsed = info
+            from pprint import pprint
+            pprint(info)
+            if parsed.get('type') in ALLOWED_SECURE_NOTE_TYPES:
+                url = parsed.get('url', url)
+                username = parsed.get('username', username)
+                password = parsed.get('password', password)
+        return Account(lastpass_instance, id, name, username, password, url, group, notes, shared_folder)
 
-    # Parse secure note
-    if secure_note == b'1':
-        parsed = parse_secure_note_server(notes)
+    @staticmethod
+    def decrypt_rsa_key(chunk, encryption_key):
+        """Parse PRIK chunk which contains private RSA key"""
+        decrypted = decode_aes256('cbc',
+                                  encryption_key[:16],
+                                  decode_hex(chunk.payload),
+                                  encryption_key)
+        regex_match = br'^LastPassPrivateKey<(?P<hex_key>.*)>LastPassPrivateKey$'
+        hex_key = re.match(regex_match, decrypted).group('hex_key')
+        rsa_key = RSA.importKey(decode_hex(hex_key))
+        rsa_key.dmp1 = rsa_key.d % (rsa_key.p - 1)
+        rsa_key.dmq1 = rsa_key.d % (rsa_key.q - 1)
+        rsa_key.iqmp = number.inverse(rsa_key.q, rsa_key.p)
+        return rsa_key
 
-        if parsed.get('type') in ALLOWED_SECURE_NOTE_TYPES:
-            url = parsed.get('url', url)
-            username = parsed.get('username', username)
-            password = parsed.get('password', password)
-
-    return Account(lastpass_instance, id, name, username, password, url, group, notes)
-
-
-def parse_PRIK(chunk, encryption_key):
-    """Parse PRIK chunk which contains private RSA key"""
-    decrypted = decode_aes256('cbc',
-                              encryption_key[:16],
-                              decode_hex(chunk.payload),
-                              encryption_key)
-
-    hex_key = re.match(br'^LastPassPrivateKey<(?P<hex_key>.*)>LastPassPrivateKey$', decrypted).group('hex_key')
-    rsa_key = RSA.importKey(decode_hex(hex_key))
-
-    rsa_key.dmp1 = rsa_key.d % (rsa_key.p - 1)
-    rsa_key.dmq1 = rsa_key.d % (rsa_key.q - 1)
-    rsa_key.iqmp = number.inverse(rsa_key.q, rsa_key.p)
-
-    return rsa_key
-
-
-def parse_SHAR(chunk, encryption_key, rsa_key):
-    # TODO: Fake some data and make a test
-    stream = Stream(chunk.payload)
-    id = stream.next_item()
-    encrypted_key = decode_hex(stream.next_item())
-    encrypted_name = stream.next_item()
-    stream.skip_item(2)
-    key = stream.next_item()
-
-    # Shared folder encryption key might come already in pre-decrypted form,
-    # where it's only AES encrypted with the regular encryption key.
-    # When the key is blank, then there's a RSA encrypted key, which has to
-    # be decrypted first before use.
-    if not key:
-        key = decode_hex(PKCS1_OAEP.new(rsa_key).decrypt(encrypted_key))
-    else:
-        key = decode_hex(decode_aes256_plain_auto(key, encryption_key))
-    name = decode_aes256_base64_auto(encrypted_name, key)
-
-    # TODO: Return an object, not a dict
-    return {'id': id, 'name': name, 'encryption_key': key}
-
-
-def parse_secure_note_server(notes):
-    info = {}
-
-    for i in notes.split(b'\n'):
-        if not i:  # blank line
-            continue
-
-        if b':' not in i:  # there is no `:` if generic note
-            continue
-
-        # Split only once so that strings like "Hostname:host.example.com:80"
-        # get interpreted correctly
-        key, value = i.split(b':', 1)
-        if key == b'NoteType':
-            info['type'] = value
-        elif key == b'Hostname':
-            info['url'] = value
-        elif key == b'Username':
-            info['username'] = value
-        elif key == b'Password':
-            info['password'] = value
-
-    return info
-
+    @staticmethod
+    def parse_shared_folder(chunk, encryption_key, rsa_key):
+        # TODO: Fake some data and make a test
+        stream = Stream(chunk.payload)
+        id = stream.next_item()
+        encrypted_key = decode_hex(stream.next_item())
+        encrypted_name = stream.next_item()
+        stream.skip_item(2)
+        key = stream.next_item()
+        # Shared folder encryption key might come already in pre-decrypted form,
+        # where it's only AES encrypted with the regular encryption key.
+        # When the key is blank, then there's a RSA encrypted key, which has to
+        # be decrypted first before use.
+        if not key:
+            key = decode_hex(PKCS1_OAEP.new(rsa_key).decrypt(encrypted_key))
+        else:
+            key = decode_hex(decode_aes256_plain_auto(key, encryption_key))
+        name = decode_aes256_base64_auto(encrypted_name, key)
+        return (id, name), key
 
 def decode_hex(data):
     """Decodes a hex encoded string into raw bytes."""
@@ -299,7 +279,6 @@ def decode_aes256_plain_auto(data, encryption_key):
     """Guesses AES cipher (EBC or CBD) from the length of the plain data."""
     assert isinstance(data, bytes)
     length = len(data)
-
     if length == 0:
         return b''
     elif data[0] == b'!'[0] and length % 16 == 1 and length > 32:
@@ -312,7 +291,6 @@ def decode_aes256_base64_auto(data, encryption_key):
     """Guesses AES cipher (EBC or CBD) from the length of the base64 encoded data."""
     assert isinstance(data, bytes)
     length = len(data)
-
     if length == 0:
         return b''
     elif data[0] == b'!'[0]:
@@ -367,13 +345,11 @@ def decode_aes256(cipher, iv, data, encryption_key):
     Allowed ciphers are: :ecb, :cbc.
     If for :ecb iv is not used and should be set to "".
     """
-    if cipher == 'cbc':
-        aes = AES.new(encryption_key, AES.MODE_CBC, iv)
-    elif cipher == 'ecb':
-        aes = AES.new(encryption_key, AES.MODE_ECB)
-    else:
-        raise ValueError('Unknown AES mode')
-    d = aes.decrypt(data)
+    if cipher not in ['cbc', 'ecb']:
+        raise ValueError(f'Unknown AES cipher provided : {cipher}')
+    mode = getattr(AES, f'MODE_{cipher.upper()}')
+    iv = iv if cipher == 'cbc' else ''
+    d = AES.new(encryption_key, mode, iv).decrypt(data)
     # http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/
     unpad = lambda s: s[0:-ord(d[-1:])]
     return unpad(d)
