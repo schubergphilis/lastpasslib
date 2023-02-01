@@ -1,8 +1,11 @@
+import codecs
 import struct
 from base64 import b64decode
 from dataclasses import dataclass
 from io import BytesIO
 
+import binascii
+from Crypto.Cipher import AES
 from dateutil.parser import parse
 
 from .lastpassexceptions import ServerError
@@ -108,10 +111,66 @@ class ChunkStream:
         return self._chunks
 
 
+class Decoder:
+
+    @staticmethod
+    def decode_hex(data):
+        """Decodes a hex encoded string into raw bytes."""
+        try:
+            return codecs.decode(data, 'hex_codec')
+        except binascii.Error:
+            raise TypeError()
+
+    @staticmethod
+    def decode_aes256_auto(data, encryption_key, base64=False):
+        """Guesses AES cipher (ECB or CBD) from the length of the plain data."""
+        if not isinstance(data, bytes):
+            raise TypeError('Data should be bytes.')
+        length = len(data)
+        if not length:
+            return b''
+        # if base64 we only check for the first byte
+        conditions = [data[0] == b'!'[0]]
+        if not base64:
+            # in plain text we also check the sizes
+            conditions.extend([length % 16 == 1, length > 32])
+        if all(conditions):
+            # in cbc plain iv is data[1:17] and data is data[17:]
+            # but in base64 iv is b64decode(data[1:25]) and data is b64decode(data[26:])
+            cipher = 'cbc'
+            arguments = [data[1:17], data[17:]] if not base64 else [b64decode(data[1:25]), b64decode(data[26:])]
+        else:
+            cipher = 'ecb'
+            arguments = [data] if not base64 else [b64decode(data)]
+        arguments.append(encryption_key)
+        return getattr(Decoder, f'decode_aes256_{cipher}')(*arguments)
+
+    @staticmethod
+    def decode_aes256_cbc(iv, data, encryption_key):
+        """
+        Decrypt AES-256 bytes with CBC.
+        """
+        decrypted_data = AES.new(encryption_key, AES.MODE_CBC, iv).decrypt(data)
+        return Decoder._unpad_decrypted_data(decrypted_data)
+
+    @staticmethod
+    def decode_aes256_ecb(data, encryption_key):
+        """
+        Decrypt AES-256 bytes with CBC.
+        """
+        decrypted_data = AES.new(encryption_key, AES.MODE_ECB).decrypt(data)
+        return Decoder._unpad_decrypted_data(decrypted_data)
+
+    @staticmethod
+    def _unpad_decrypted_data(decrypted_data):
+        # http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/
+        return decrypted_data[0:-ord(decrypted_data[-1:])]
+
+
 class Account(object):
-    def __init__(self, lastpass_instance, id, name, username, password, url, group, notes=None, shared_folder=None):
+    def __init__(self, lastpass_instance, id_, name, username, password, url, group, notes=None, shared_folder=None):
         self._lastpass = lastpass_instance
-        self.id = id.decode('utf-8')
+        self.id = id_.decode('utf-8')
         self.name = name.decode('utf-8')
         self.username = username.decode('utf-8')
         self.password = password.decode('utf-8')

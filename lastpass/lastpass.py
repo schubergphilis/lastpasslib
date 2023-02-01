@@ -1,19 +1,20 @@
-import codecs
 import re
-from base64 import b64decode
 from hashlib import sha256, pbkdf2_hmac
 from xml.etree import ElementTree as etree
 from xml.etree.ElementTree import ParseError
 
-import binascii
 import requests
-from Crypto.Cipher import AES, PKCS1_OAEP
+from Crypto.Cipher import PKCS1_OAEP
 from Crypto.PublicKey import RSA
 from Crypto.Util import number
 from binascii import hexlify
 from requests import Session
 
-from .entities import ChunkStream, Stream, Account, SharedFolder
+from .entities import (Account,
+                       ChunkStream,
+                       Decoder,
+                       SharedFolder,
+                       Stream)
 from .lastpassexceptions import (InvalidMfa,
                                  InvalidPassword,
                                  MfaRequired,
@@ -28,15 +29,6 @@ ALLOWED_SECURE_NOTE_TYPES = [
     b"Database",
     b"Instant Messenger",
 ]
-
-
-class LastpassMock:
-
-    def __init__(self, username, domain='lastpass.com'):
-        self.domain = domain
-        self.host = f'https://{domain}'
-        self.username = username
-        self.iteration_count = 100100
 
 
 class Lastpass:
@@ -179,8 +171,7 @@ class Vault:
             elif chunk.id == b'SHAR':
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
-                shared_folder_data, key = self._parse_shared_folder(chunk, encryption_key, rsa_private_key)
-                shared_folder = SharedFolder(*shared_folder_data)
+                shared_folder, key = self._parse_shared_folder(chunk, encryption_key, rsa_private_key)
         return accounts
 
     @staticmethod
@@ -190,13 +181,13 @@ class Vault:
         """
         stream = Stream(chunk.payload)
         id_ = stream.next_item()
-        name = Decoder.decode_aes256_plain_auto(stream.next_item(), encryption_key)
-        group = Decoder.decode_aes256_plain_auto(stream.next_item(), encryption_key)
-        url = Decoder.hex(stream.next_item())
-        notes = Decoder.decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        name = Decoder.decode_aes256_auto(stream.next_item(), encryption_key)
+        group = Decoder.decode_aes256_auto(stream.next_item(), encryption_key)
+        url = Decoder.decode_hex(stream.next_item())
+        notes = Decoder.decode_aes256_auto(stream.next_item(), encryption_key)
         stream.skip_item(2)
-        username = Decoder.decode_aes256_plain_auto(stream.next_item(), encryption_key)
-        password = Decoder.decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        username = Decoder.decode_aes256_auto(stream.next_item(), encryption_key)
+        password = Decoder.decode_aes256_auto(stream.next_item(), encryption_key)
         stream.skip_item(2)
         secure_note = stream.next_item()
         if secure_note == b'1':
@@ -228,11 +219,11 @@ class Vault:
     def _decrypt_rsa_key(chunk, encryption_key):
         """Parse PRIK chunk which contains private RSA key"""
         decrypted = Decoder.decode_aes256_cbc(encryption_key[:16],
-                                              Decoder.hex(chunk.payload),
+                                              Decoder.decode_hex(chunk.payload),
                                               encryption_key)
         regex_match = br'^LastPassPrivateKey<(?P<hex_key>.*)>LastPassPrivateKey$'
         hex_key = re.match(regex_match, decrypted).group('hex_key')
-        rsa_key = RSA.importKey(Decoder.hex(hex_key))
+        rsa_key = RSA.importKey(Decoder.decode_hex(hex_key))
         rsa_key.dmp1 = rsa_key.d % (rsa_key.p - 1)
         rsa_key.dmq1 = rsa_key.d % (rsa_key.q - 1)
         rsa_key.iqmp = number.inverse(rsa_key.q, rsa_key.p)
@@ -242,7 +233,7 @@ class Vault:
     def _parse_shared_folder(chunk, encryption_key, rsa_key):
         stream = Stream(chunk.payload)
         id_ = stream.next_item()
-        encrypted_key = Decoder.hex(stream.next_item())
+        encrypted_key = Decoder.decode_hex(stream.next_item())
         encrypted_name = stream.next_item()
         stream.skip_item(2)
         key = stream.next_item()
@@ -251,67 +242,8 @@ class Vault:
         # When the key is blank, then there's a RSA encrypted key, which has to
         # be decrypted first before use.
         if not key:
-            key = Decoder.hex(PKCS1_OAEP.new(rsa_key).decrypt(encrypted_key))
+            key = Decoder.decode_hex(PKCS1_OAEP.new(rsa_key).decrypt(encrypted_key))
         else:
-            key = Decoder.hex(Decoder.decode_aes256_plain_auto(key, encryption_key))
-        name = Decoder.decode_aes256_base64_auto(encrypted_name, key)
-        return (id_, name), key
-
-
-class Decoder:
-
-    @staticmethod
-    def hex(data):
-        """Decodes a hex encoded string into raw bytes."""
-        try:
-            return codecs.decode(data, 'hex_codec')
-        except binascii.Error:
-            raise TypeError()
-
-    @staticmethod
-    def validate_data_length(data):
-        assert isinstance(data, bytes)
-        return len(data)
-
-    @staticmethod
-    def decode_aes256_plain_auto(data, encryption_key):
-        """Guesses AES cipher (EBC or CBD) from the length of the plain data."""
-        length = Decoder.validate_data_length(data)
-        if length == 0:
-            return b''
-        elif data[0] == b'!'[0] and length % 16 == 1 and length > 32:
-            return Decoder.decode_aes256_cbc(data[1:17], data[17:], encryption_key)
-        else:
-            return Decoder.decode_aes256_ecb(data, encryption_key)
-
-    @staticmethod
-    def decode_aes256_base64_auto(data, encryption_key):
-        """Guesses AES cipher (EBC or CBD) from the length of the base64 encoded data."""
-        length = Decoder.validate_data_length(data)
-        if length == 0:
-            return b''
-        elif data[0] == b'!'[0]:
-            return Decoder.decode_aes256_cbc(b64decode(data[1:25]), b64decode(data[26:]), encryption_key)
-        else:
-            return Decoder.decode_aes256_ecb(b64decode(data), encryption_key)
-
-    @staticmethod
-    def decode_aes256_cbc(iv, data, encryption_key):
-        """
-        Decrypt AES-256 bytes with CBC.
-        """
-        decrypted_data = AES.new(encryption_key, AES.MODE_CBC, iv).decrypt(data)
-        return Decoder.unpad_decrypted_data(decrypted_data)
-
-    @staticmethod
-    def decode_aes256_ecb(data, encryption_key):
-        """
-        Decrypt AES-256 bytes with CBC.
-        """
-        decrypted_data = AES.new(encryption_key, AES.MODE_ECB).decrypt(data)
-        return Decoder.unpad_decrypted_data(decrypted_data)
-
-    @staticmethod
-    def unpad_decrypted_data(decrypted_data):
-        # http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/
-        return decrypted_data[0:-ord(decrypted_data[-1:])]
+            key = Decoder.decode_hex(Decoder.decode_aes256_auto(key, encryption_key))
+        name = Decoder.decode_aes256_auto(encrypted_name, key, base64=True)
+        return SharedFolder(id_, name), key
