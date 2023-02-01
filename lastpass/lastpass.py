@@ -43,8 +43,8 @@ class LastpassMock:
 
 @dataclass
 class Chunk(object):
-    id: str
-    payload: str
+    id: bytes
+    payload: bytes
 
 
 class Lastpass:
@@ -174,7 +174,7 @@ class Vault:
         return self._accounts
 
     def _decrypt_blob(self, data):
-        stream = Stream(data)
+        stream = ChunkStream(data)
         accounts = []
         encryption_key = self.key
         key = encryption_key
@@ -194,6 +194,47 @@ class Vault:
 
 
 class Stream:
+
+    def __init__(self, data):
+        self._stream = BytesIO(data)
+        self.length = self._get_length()
+
+    def _get_length(self):
+        current_pos = self._stream.tell()
+        # go to the end of the stream
+        self._stream.seek(0, 2)
+        # get the actual length
+        length = self._stream.tell()
+        # reset to the beginning
+        self._stream.seek(current_pos, 0)
+        return length
+
+    @property
+    def position(self):
+        return self._stream.tell()
+
+    def next_by_size(self, size):
+        """Reads the next size provided bytes from a stream and returns it as a string of bytes."""
+        return self._stream.read(size)
+
+    def next_item(self):
+        """Reads an item from a stream and returns it as a string of bytes."""
+        # An item in an itemized chunk is made up of the
+        # big endian size and the payload of that size.
+        #
+        # Example:
+        #   0000: 4
+        #   0004: 0xDE 0xAD 0xBE 0xEF
+        #   0008: --- Next item ---
+        return self._stream.read(struct.unpack('>I', self._stream.read(4))[0])
+
+    def skip_item(self, times=1):
+        """Skips an item in a stream."""
+        for _ in range(times):
+            self.next_item()
+
+
+class ChunkStream:
     def __init__(self, blob):
         self._data = b64decode(blob)
         self._chunks = []
@@ -218,16 +259,12 @@ class Stream:
         #   000C: --- Next chunk ---
         if not self._chunks:
             chunks = []
-            stream = BytesIO(self._data)
-            current_pos = stream.tell()
-            stream.seek(0, 2)
-            length = stream.tell()
-            stream.seek(current_pos, 0)
-            while stream.tell() < length:
-                stream_id = stream.read(4)
-                payload = stream.read(struct.unpack('>I', stream.read(4))[0])
-                chunks.append(Chunk(stream_id, payload))
-            if not Stream.is_complete(chunks):
+            stream = Stream(self._data)
+            while stream.position < stream.length:
+                chunk_id = stream.next_by_size(4)
+                payload = stream.next_item()
+                chunks.append(Chunk(chunk_id, payload))
+            if not ChunkStream.is_complete(chunks):
                 raise ServerError('Blob is truncated')
             self._chunks = chunks
         return self._chunks
@@ -257,22 +294,22 @@ def parse_ACCT(chunk, encryption_key, lastpass_instance):
     """
     Parses an account chunk, decrypts and creates an Account object.
     May return nil when the chunk does not represent an account.
-    All secure notes are ACCTs but not all of them strore account
+    All secure notes are ACCTs but not all of them store account
     information.
     """
     # TODO: Make a test case that covers secure note account
 
-    io = BytesIO(chunk.payload)
-    id = read_item(io)
-    name = decode_aes256_plain_auto(read_item(io), encryption_key)
-    group = decode_aes256_plain_auto(read_item(io), encryption_key)
-    url = decode_hex(read_item(io))
-    notes = decode_aes256_plain_auto(read_item(io), encryption_key)
-    skip_item(io, 2)
-    username = decode_aes256_plain_auto(read_item(io), encryption_key)
-    password = decode_aes256_plain_auto(read_item(io), encryption_key)
-    skip_item(io, 2)
-    secure_note = read_item(io)
+    stream = Stream(chunk.payload)
+    id = stream.next_item()
+    name = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+    group = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+    url = decode_hex(stream.next_item())
+    notes = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+    stream.skip_item(2)
+    username = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+    password = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+    stream.skip_item(2)
+    secure_note = stream.next_item()
 
     # Parse secure note
     if secure_note == b'1':
@@ -305,12 +342,12 @@ def parse_PRIK(chunk, encryption_key):
 
 def parse_SHAR(chunk, encryption_key, rsa_key):
     # TODO: Fake some data and make a test
-    io = BytesIO(chunk.payload)
-    id = read_item(io)
-    encrypted_key = decode_hex(read_item(io))
-    encrypted_name = read_item(io)
-    skip_item(io, 2)
-    key = read_item(io)
+    stream = Stream(chunk.payload)
+    id = stream.next_item()
+    encrypted_key = decode_hex(stream.next_item())
+    encrypted_name = stream.next_item()
+    stream.skip_item(2)
+    key = stream.next_item()
 
     # Shared folder encryption key might come already in pre-decrypted form,
     # where it's only AES encrypted with the regular encryption key.
@@ -349,36 +386,6 @@ def parse_secure_note_server(notes):
             info['password'] = value
 
     return info
-
-
-def read_size(stream):
-    """Reads a chunk or an item ID."""
-    return struct.unpack('>I', stream.read(4))[0]
-
-
-#
-# @staticmethod
-def read_payload(stream, size):
-    """Reads a payload of a given size from a stream."""
-    return stream.read(size)
-
-
-def read_item(stream):
-    """Reads an item from a stream and returns it as a string of bytes."""
-    # An item in an itemized chunk is made up of the
-    # big endian size and the payload of that size.
-    #
-    # Example:
-    #   0000: 4
-    #   0004: 0xDE 0xAD 0xBE 0xEF
-    #   0008: --- Next item ---
-    return read_payload(stream, read_size(stream))
-
-
-def skip_item(stream, times=1):
-    """Skips an item in a stream."""
-    for i in range(times):
-        read_item(stream)
 
 
 def decode_hex(data):
