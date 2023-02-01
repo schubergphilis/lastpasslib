@@ -2,6 +2,7 @@ import codecs
 import re
 import struct
 from base64 import b64decode
+from dataclasses import dataclass
 from io import BytesIO
 from xml.etree import ElementTree as etree
 from xml.etree.ElementTree import ParseError
@@ -29,6 +30,21 @@ ALLOWED_SECURE_NOTE_TYPES = [
     b"Database",
     b"Instant Messenger",
 ]
+
+
+class LastpassMock:
+
+    def __init__(self, username, domain='lastpass.com'):
+        self.domain = domain
+        self.host = f'https://{domain}'
+        self.username = username
+        self.iteration_count = 100100
+
+
+@dataclass
+class Chunk(object):
+    id: str
+    payload: str
 
 
 class Lastpass:
@@ -151,6 +167,37 @@ class Vault:
             response.raise_for_status()
         return response.content
 
+    @property
+    def secrets(self):
+        if not self._accounts:
+            self._accounts = self._decrypt_blob(self._data)
+        return self._accounts
+
+    def _decrypt_blob(self, data):
+        stream = Stream(data)
+        accounts = []
+        encryption_key = self.key
+        key = encryption_key
+        rsa_private_key = None
+        for chunk in stream.chunks:
+            if chunk.id == b'ACCT':
+                # TODO: Put shared folder name as group in the account
+                account = parse_ACCT(chunk, key, self._lastpass)
+                if account:
+                    accounts.append(account)
+            elif chunk.id == b'PRIK':
+                rsa_private_key = parse_PRIK(chunk, encryption_key)
+            elif chunk.id == b'SHAR':
+                # After SHAR chunk all the following accounts are encrypted with a new key
+                key = parse_SHAR(chunk, encryption_key, rsa_private_key)['encryption_key']
+        return accounts
+
+
+class Stream:
+    def __init__(self, blob):
+        self._data = b64decode(blob)
+        self._chunks = []
+
     @staticmethod
     def is_complete(chunks):
         if not chunks:
@@ -159,29 +206,8 @@ class Vault:
                       chunks[-1].payload == b'OK']
         return all(conditions)
 
-    @staticmethod
-    def read_id(stream):
-        """Reads a chunk ID from a stream."""
-        return stream.read(4)
-
-    @staticmethod
-    def read_uint32(stream):
-        """Reads an unsigned 32 bit integer from a stream."""
-        return struct.unpack('>I', stream.read(4))[0]
-
-    @staticmethod
-    def read_size(stream):
-        """Reads a chunk or an item ID."""
-        return Vault.read_uint32(stream)
-
-    @staticmethod
-    def read_payload(stream, size):
-        """Reads a payload of a given size from a stream."""
-        return stream.read(size)
-
-    @staticmethod
-    def read_chunk(stream):
-        """Reads one chunk from a stream and creates a Chunk object with the data read."""
+    @property
+    def chunks(self):
         # LastPass blob chunk is made up of 4-byte ID,
         # big endian 4-byte size and payload of that size.
         #
@@ -190,50 +216,21 @@ class Vault:
         #   0004: 4
         #   0008: 0xDE 0xAD 0xBE 0xEF
         #   000C: --- Next chunk ---
-        return Chunk(Vault.read_id(stream), Vault.read_payload(stream, Vault.read_size(stream)))
-
-    @staticmethod
-    def chunk_data(data):
-        chunks = Vault.extract_chunks(data)
-        if not Vault.is_complete(chunks):
-            raise ServerError('Blob is truncated')
-        return chunks
-
-    @staticmethod
-    def extract_chunks(blob):
-        """Splits the blob into chucks grouped by kind."""
-        chunks = []
-        stream = BytesIO(blob)
-        current_pos = stream.tell()
-        stream.seek(0, 2)
-        length = stream.tell()
-        stream.seek(current_pos, 0)
-        while stream.tell() < length:
-            chunks.append(Vault.read_chunk(stream))
-        return chunks
-
-    @property
-    def secrets(self):
-        if not self._accounts:
-            data = b64decode(self._data)
-            chunks = self.chunk_data(data)
-            accounts = []
-            encryption_key = self.key
-            key = encryption_key
-            rsa_private_key = None
-            for chunk in chunks:
-                if chunk.id == b'ACCT':
-                    # TODO: Put shared folder name as group in the account
-                    account = parse_ACCT(chunk, key, self._lastpass)
-                    if account:
-                        accounts.append(account)
-                elif chunk.id == b'PRIK':
-                    rsa_private_key = parse_PRIK(chunk, encryption_key)
-                elif chunk.id == b'SHAR':
-                    # After SHAR chunk all the following accounts are encrypted with a new key
-                    key = parse_SHAR(chunk, encryption_key, rsa_private_key)['encryption_key']
-            self._accounts = accounts
-        return self._accounts
+        if not self._chunks:
+            chunks = []
+            stream = BytesIO(self._data)
+            current_pos = stream.tell()
+            stream.seek(0, 2)
+            length = stream.tell()
+            stream.seek(current_pos, 0)
+            while stream.tell() < length:
+                stream_id = stream.read(4)
+                payload = stream.read(struct.unpack('>I', stream.read(4))[0])
+                chunks.append(Chunk(stream_id, payload))
+            if not Stream.is_complete(chunks):
+                raise ServerError('Blob is truncated')
+            self._chunks = chunks
+        return self._chunks
 
 
 class Account(object):
@@ -254,15 +251,6 @@ class Account(object):
         if not response.ok:
             response.raise_for_status()
         return response.json().get('history')
-
-
-class Chunk(object):
-    def __init__(self, id, payload):
-        self.id = id
-        self.payload = payload
-
-    def __eq__(self, other):
-        return self.id == other.id and self.payload == other.payload
 
 
 def parse_ACCT(chunk, encryption_key, lastpass_instance):
@@ -363,6 +351,18 @@ def parse_secure_note_server(notes):
     return info
 
 
+def read_size(stream):
+    """Reads a chunk or an item ID."""
+    return struct.unpack('>I', stream.read(4))[0]
+
+
+#
+# @staticmethod
+def read_payload(stream, size):
+    """Reads a payload of a given size from a stream."""
+    return stream.read(size)
+
+
 def read_item(stream):
     """Reads an item from a stream and returns it as a string of bytes."""
     # An item in an itemized chunk is made up of the
@@ -372,7 +372,7 @@ def read_item(stream):
     #   0000: 4
     #   0004: 0xDE 0xAD 0xBE 0xEF
     #   0008: --- Next item ---
-    return Vault.read_payload(stream, Vault.read_size(stream))
+    return read_payload(stream, read_size(stream))
 
 
 def skip_item(stream, times=1):
