@@ -174,28 +174,23 @@ class Vault:
         shared_folder = None
         for chunk in stream.chunks:
             if chunk.id == b'ACCT':
-                accounts.append(self.parse_account(chunk, key, self._lastpass, shared_folder))
+                accounts.append(self._parse_account(chunk, key, self._lastpass, shared_folder))
             elif chunk.id == b'PRIK':
-                rsa_private_key = self.decrypt_rsa_key(chunk, encryption_key)
+                rsa_private_key = self._decrypt_rsa_key(chunk, encryption_key)
             elif chunk.id == b'SHAR':
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
-                shared_folder_data, key = self.parse_shared_folder(chunk, encryption_key, rsa_private_key)
+                shared_folder_data, key = self._parse_shared_folder(chunk, encryption_key, rsa_private_key)
                 shared_folder = SharedFolder(*shared_folder_data)
         return accounts
 
     @staticmethod
-    def parse_account(chunk, encryption_key, lastpass_instance, shared_folder):
+    def _parse_account(chunk, encryption_key, lastpass_instance, shared_folder):
+        """Parses an account chunk, decrypts and creates an Account object.
+        All secure notes are ACCTs but not all of them store account information.
         """
-        Parses an account chunk, decrypts and creates an Account object.
-        May return nil when the chunk does not represent an account.
-        All secure notes are ACCTs but not all of them store account
-        information.
-        """
-        # TODO: Make a test case that covers secure note account
-
         stream = Stream(chunk.payload)
-        id = stream.next_item()
+        id_ = stream.next_item()
         name = decode_aes256_plain_auto(stream.next_item(), encryption_key)
         group = decode_aes256_plain_auto(stream.next_item(), encryption_key)
         url = decode_hex(stream.next_item())
@@ -205,35 +200,34 @@ class Vault:
         password = decode_aes256_plain_auto(stream.next_item(), encryption_key)
         stream.skip_item(2)
         secure_note = stream.next_item()
-
-        # Parse secure note
         if secure_note == b'1':
-            info = {}
-            for i in notes.split(b'\n'):
-                if any([not i, b':' not in i]):  # blank line,  there is no `:` if generic note
-                    continue
-                # Split only once so that strings like "Hostname:host.example.com:80"
-                # get interpreted correctly
-                key, value = i.split(b':', 1)
-                if key == b'NoteType':
-                    info['type'] = value
-                elif key == b'Hostname':
-                    info['url'] = value
-                elif key == b'Username':
-                    info['username'] = value
-                elif key == b'Password':
-                    info['password'] = value
-            parsed = info
-            from pprint import pprint
-            pprint(info)
-            if parsed.get('type') in ALLOWED_SECURE_NOTE_TYPES:
-                url = parsed.get('url', url)
-                username = parsed.get('username', username)
-                password = parsed.get('password', password)
-        return Account(lastpass_instance, id, name, username, password, url, group, notes, shared_folder)
+            parsed_notes = Vault._parse_secure_note(notes)
+            if parsed_notes.get('type') in ALLOWED_SECURE_NOTE_TYPES:
+                url = parsed_notes.get('url', url)
+                username = parsed_notes.get('username', username)
+                password = parsed_notes.get('password', password)
+        return Account(lastpass_instance, id_, name, username, password, url, group, notes, shared_folder)
 
     @staticmethod
-    def decrypt_rsa_key(chunk, encryption_key):
+    def _parse_secure_note(notes):
+        info = {}
+        for line in notes.split(b'\n'):
+            if any([not line, b':' not in line]):  # blank line,  there is no `:` if generic note
+                continue
+            # Split only once so that strings like "Hostname:host.example.com:80" get interpreted correctly
+            key, value = line.split(b':', 1)
+            if key == b'NoteType':
+                info['type'] = value
+            elif key == b'Hostname':
+                info['url'] = value
+            elif key == b'Username':
+                info['username'] = value
+            elif key == b'Password':
+                info['password'] = value
+        return info
+
+    @staticmethod
+    def _decrypt_rsa_key(chunk, encryption_key):
         """Parse PRIK chunk which contains private RSA key"""
         decrypted = decode_aes256('cbc',
                                   encryption_key[:16],
@@ -248,10 +242,9 @@ class Vault:
         return rsa_key
 
     @staticmethod
-    def parse_shared_folder(chunk, encryption_key, rsa_key):
-        # TODO: Fake some data and make a test
+    def _parse_shared_folder(chunk, encryption_key, rsa_key):
         stream = Stream(chunk.payload)
-        id = stream.next_item()
+        id_ = stream.next_item()
         encrypted_key = decode_hex(stream.next_item())
         encrypted_name = stream.next_item()
         stream.skip_item(2)
@@ -265,7 +258,8 @@ class Vault:
         else:
             key = decode_hex(decode_aes256_plain_auto(key, encryption_key))
         name = decode_aes256_base64_auto(encrypted_name, key)
-        return (id, name), key
+        return (id_, name), key
+
 
 def decode_hex(data):
     """Decodes a hex encoded string into raw bytes."""
@@ -345,11 +339,13 @@ def decode_aes256(cipher, iv, data, encryption_key):
     Allowed ciphers are: :ecb, :cbc.
     If for :ecb iv is not used and should be set to "".
     """
-    if cipher not in ['cbc', 'ecb']:
-        raise ValueError(f'Unknown AES cipher provided : {cipher}')
-    mode = getattr(AES, f'MODE_{cipher.upper()}')
-    iv = iv if cipher == 'cbc' else ''
-    d = AES.new(encryption_key, mode, iv).decrypt(data)
+    if cipher == 'cbc':
+        aes = AES.new(encryption_key, AES.MODE_CBC, iv)
+    elif cipher == 'ecb':
+        aes = AES.new(encryption_key, AES.MODE_ECB)
+    else:
+        raise ValueError('Unknown AES mode')
+    d = aes.decrypt(data)
     # http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/
     unpad = lambda s: s[0:-ord(d[-1:])]
     return unpad(d)
