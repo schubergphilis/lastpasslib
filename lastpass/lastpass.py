@@ -33,22 +33,23 @@ ALLOWED_SECURE_NOTE_TYPES = [
 
 class Lastpass:
 
-    def __init__(self, username, password, mfa):
-        self.username = username
-        self.password = password
-        self.mfa = mfa
+    def __init__(self, username, password, mfa, domain='lastpass.com'):
+        self.domain = f'https://{domain}'
         self._headers = {'user-agent': 'lastpass-python/2.5.0'}
-        self._iteration_count = self._get_iterations_by_email(username)
-        self._vault = Vault(self)
+        self.username = username
+        self._iteration_count = None
+        self._vault = Vault(self, password)
         self._session = self._get_authenticated_session(username, mfa)
 
-    @staticmethod
-    def _get_iterations_by_email(email):
-        url = 'https://lastpass.com/iterations.php'
-        response = requests.post(url, data={'email': email})
-        if not response.ok:
-            response.raise_for_status()
-        return response.json()
+    @property
+    def iteration_count(self):
+        if self._iteration_count is None:
+            url = f'{self.domain}/iterations.php'
+            response = requests.post(url, data={'email': self.username})
+            if not response.ok:
+                response.raise_for_status()
+            self._iteration_count = response.json()
+        return self._iteration_count
 
     @staticmethod
     def _validate_response(response):
@@ -80,14 +81,12 @@ class Lastpass:
                 'xml': 1,
                 'username': username,
                 'hash': self._vault.hash,
-                'iterations': self._iteration_count, }
+                'iterations': self.iteration_count, }
         if mfa:
             body['otp'] = mfa
         if client_id:
             body['imei'] = client_id
-        response = requests.post('https://lastpass.com/login.php',
-                                 data=body,
-                                 headers=self._headers)
+        response = requests.post('https://lastpass.com/login.php', data=body, headers=self._headers)
         parsed_response = self._validate_response(response)
         if parsed_response.tag == 'ok':
             session.cookies.set('PHPSESSID', parsed_response.attrib.get('sessionid'), domain='lastpass.com')
@@ -106,26 +105,18 @@ class Lastpass:
 
 
 class Vault:
-    def __init__(self, lastpass_instance):
+    def __init__(self, lastpass_instance, password):
         self._lastpass = lastpass_instance
         self.username = lastpass_instance.username.encode('utf-8')
-        self.password = lastpass_instance.password.encode('utf-8')
-        self.key_iteration_count = lastpass_instance._iteration_count
-        self._accounts = None
+        self.password = password.encode('utf-8')
+        self.key_iteration_count = lastpass_instance.iteration_count
         self._key = None
         self._hash = None
-
-    @property
-    def _data(self):
-        url = 'https://lastpass.com/getaccts.php?mobile=1&b64=1&hash=0.0&hasplugin=3.0.23&requestsrc=android'
-        response = self._lastpass._session.get(url)
-        if not response.ok:
-            response.raise_for_status()
-        return response.content
+        self._accounts = None
 
     @property
     def key(self):
-        if not self._key:
+        if self._key is None:
             if self.key_iteration_count == 1:
                 self._key = sha256(f'{self.username}{self.password}').digest()
             else:
@@ -134,12 +125,20 @@ class Vault:
 
     @property
     def hash(self):
-        if not self._hash:
+        if self._hash is None:
             if self.key_iteration_count == 1:
                 self._hash = bytearray(sha256(hexlify(self.key) + self.password).hexdigest(), 'ascii')
             else:
                 self._hash = hexlify(pbkdf2_hmac('sha256', self.key, self.password, 1, 32))
         return self._hash
+
+    @property
+    def _data(self):
+        url = 'https://lastpass.com/getaccts.php?mobile=1&b64=1&hash=0.0&hasplugin=3.0.23&requestsrc=android'
+        response = self._lastpass._session.get(url)
+        if not response.ok:
+            response.raise_for_status()
+        return response.content
 
     @staticmethod
     def is_complete(chunks):
@@ -222,7 +221,7 @@ class Vault:
                 elif i.id == b'SHAR':
                     # After SHAR chunk all the following accounts are encrypted with a new key
                     key = parse_SHAR(i, encryption_key, rsa_private_key)['encryption_key']
-        self._accounts = accounts
+            self._accounts = accounts
         return self._accounts
 
 
