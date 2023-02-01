@@ -190,13 +190,13 @@ class Vault:
         """
         stream = Stream(chunk.payload)
         id_ = stream.next_item()
-        name = decode_aes256_plain_auto(stream.next_item(), encryption_key)
-        group = decode_aes256_plain_auto(stream.next_item(), encryption_key)
-        url = decode_hex(stream.next_item())
-        notes = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        name = Decoder.decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        group = Decoder.decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        url = Decoder.hex(stream.next_item())
+        notes = Decoder.decode_aes256_plain_auto(stream.next_item(), encryption_key)
         stream.skip_item(2)
-        username = decode_aes256_plain_auto(stream.next_item(), encryption_key)
-        password = decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        username = Decoder.decode_aes256_plain_auto(stream.next_item(), encryption_key)
+        password = Decoder.decode_aes256_plain_auto(stream.next_item(), encryption_key)
         stream.skip_item(2)
         secure_note = stream.next_item()
         if secure_note == b'1':
@@ -227,13 +227,12 @@ class Vault:
     @staticmethod
     def _decrypt_rsa_key(chunk, encryption_key):
         """Parse PRIK chunk which contains private RSA key"""
-        decrypted = decode_aes256('cbc',
-                                  encryption_key[:16],
-                                  decode_hex(chunk.payload),
-                                  encryption_key)
+        decrypted = Decoder.decode_aes256_cbc(encryption_key[:16],
+                                              Decoder.hex(chunk.payload),
+                                              encryption_key)
         regex_match = br'^LastPassPrivateKey<(?P<hex_key>.*)>LastPassPrivateKey$'
         hex_key = re.match(regex_match, decrypted).group('hex_key')
-        rsa_key = RSA.importKey(decode_hex(hex_key))
+        rsa_key = RSA.importKey(Decoder.hex(hex_key))
         rsa_key.dmp1 = rsa_key.d % (rsa_key.p - 1)
         rsa_key.dmq1 = rsa_key.d % (rsa_key.q - 1)
         rsa_key.iqmp = number.inverse(rsa_key.q, rsa_key.p)
@@ -243,7 +242,7 @@ class Vault:
     def _parse_shared_folder(chunk, encryption_key, rsa_key):
         stream = Stream(chunk.payload)
         id_ = stream.next_item()
-        encrypted_key = decode_hex(stream.next_item())
+        encrypted_key = Decoder.hex(stream.next_item())
         encrypted_name = stream.next_item()
         stream.skip_item(2)
         key = stream.next_item()
@@ -252,98 +251,67 @@ class Vault:
         # When the key is blank, then there's a RSA encrypted key, which has to
         # be decrypted first before use.
         if not key:
-            key = decode_hex(PKCS1_OAEP.new(rsa_key).decrypt(encrypted_key))
+            key = Decoder.hex(PKCS1_OAEP.new(rsa_key).decrypt(encrypted_key))
         else:
-            key = decode_hex(decode_aes256_plain_auto(key, encryption_key))
-        name = decode_aes256_base64_auto(encrypted_name, key)
+            key = Decoder.hex(Decoder.decode_aes256_plain_auto(key, encryption_key))
+        name = Decoder.decode_aes256_base64_auto(encrypted_name, key)
         return (id_, name), key
 
 
-def decode_hex(data):
-    """Decodes a hex encoded string into raw bytes."""
-    try:
-        return codecs.decode(data, 'hex_codec')
-    except binascii.Error:
-        raise TypeError()
+class Decoder:
 
+    @staticmethod
+    def hex(data):
+        """Decodes a hex encoded string into raw bytes."""
+        try:
+            return codecs.decode(data, 'hex_codec')
+        except binascii.Error:
+            raise TypeError()
 
-def decode_aes256_plain_auto(data, encryption_key):
-    """Guesses AES cipher (EBC or CBD) from the length of the plain data."""
-    assert isinstance(data, bytes)
-    length = len(data)
-    if length == 0:
-        return b''
-    elif data[0] == b'!'[0] and length % 16 == 1 and length > 32:
-        return decode_aes256_cbc_plain(data, encryption_key)
-    else:
-        return decode_aes256_ecb_plain(data, encryption_key)
+    @staticmethod
+    def validate_data_length(data):
+        assert isinstance(data, bytes)
+        return len(data)
 
+    @staticmethod
+    def decode_aes256_plain_auto(data, encryption_key):
+        """Guesses AES cipher (EBC or CBD) from the length of the plain data."""
+        length = Decoder.validate_data_length(data)
+        if length == 0:
+            return b''
+        elif data[0] == b'!'[0] and length % 16 == 1 and length > 32:
+            return Decoder.decode_aes256_cbc(data[1:17], data[17:], encryption_key)
+        else:
+            return Decoder.decode_aes256_ecb(data, encryption_key)
 
-def decode_aes256_base64_auto(data, encryption_key):
-    """Guesses AES cipher (EBC or CBD) from the length of the base64 encoded data."""
-    assert isinstance(data, bytes)
-    length = len(data)
-    if length == 0:
-        return b''
-    elif data[0] == b'!'[0]:
-        return decode_aes256_cbc_base64(data, encryption_key)
-    else:
-        return decode_aes256_ecb_base64(data, encryption_key)
+    @staticmethod
+    def decode_aes256_base64_auto(data, encryption_key):
+        """Guesses AES cipher (EBC or CBD) from the length of the base64 encoded data."""
+        length = Decoder.validate_data_length(data)
+        if length == 0:
+            return b''
+        elif data[0] == b'!'[0]:
+            return Decoder.decode_aes256_cbc(b64decode(data[1:25]), b64decode(data[26:]), encryption_key)
+        else:
+            return Decoder.decode_aes256_ecb(b64decode(data), encryption_key)
 
+    @staticmethod
+    def decode_aes256_cbc(iv, data, encryption_key):
+        """
+        Decrypt AES-256 bytes with CBC.
+        """
+        decrypted_data = AES.new(encryption_key, AES.MODE_CBC, iv).decrypt(data)
+        return Decoder.unpad_decrypted_data(decrypted_data)
 
-def decode_aes256_ecb_plain(data, encryption_key):
-    """Decrypts AES-256 ECB bytes."""
-    if not data:
-        return b''
-    else:
-        return decode_aes256('ecb', '', data, encryption_key)
+    @staticmethod
+    def decode_aes256_ecb(data, encryption_key):
+        """
+        Decrypt AES-256 bytes with CBC.
+        """
+        decrypted_data = AES.new(encryption_key, AES.MODE_ECB).decrypt(data)
+        return Decoder.unpad_decrypted_data(decrypted_data)
 
-
-def decode_aes256_ecb_base64(data, encryption_key):
-    """Decrypts base64 encoded AES-256 ECB bytes."""
-    return decode_aes256_ecb_plain(b64decode(data), encryption_key)
-
-
-def decode_aes256_cbc_plain(data, encryption_key):
-    """Decrypts AES-256 CBC bytes."""
-    if not data:
-        return b''
-    else:
-        # LastPass AES-256/CBC encryted string starts with an "!".
-        # Next 16 bytes are the IV for the cipher.
-        # And the rest is the encrypted payload.
-        return decode_aes256('cbc', data[1:17], data[17:], encryption_key)
-
-
-def decode_aes256_cbc_base64(data, encryption_key):
-    """Decrypts base64 encoded AES-256 CBC bytes."""
-    if not data:
-        return b''
-    else:
-        # LastPass AES-256/CBC/base64 encrypted string starts with an "!".
-        # Next 24 bytes are the base64 encoded IV for the cipher.
-        # Then comes the "|".
-        # And the rest is the base64 encoded encrypted payload.
-        return decode_aes256(
-            'cbc',
-            b64decode(data[1:25]),
-            b64decode(data[26:]),
-            encryption_key)
-
-
-def decode_aes256(cipher, iv, data, encryption_key):
-    """
-    Decrypt AES-256 bytes.
-    Allowed ciphers are: :ecb, :cbc.
-    If for :ecb iv is not used and should be set to "".
-    """
-    if cipher == 'cbc':
-        aes = AES.new(encryption_key, AES.MODE_CBC, iv)
-    elif cipher == 'ecb':
-        aes = AES.new(encryption_key, AES.MODE_ECB)
-    else:
-        raise ValueError('Unknown AES mode')
-    d = aes.decrypt(data)
-    # http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/
-    unpad = lambda s: s[0:-ord(d[-1:])]
-    return unpad(d)
+    @staticmethod
+    def unpad_decrypted_data(decrypted_data):
+        # http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/
+        return decrypted_data[0:-ord(decrypted_data[-1:])]
