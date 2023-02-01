@@ -140,8 +140,13 @@ class Vault:
 
     @property
     def _data(self):
-        url = 'https://lastpass.com/getaccts.php?mobile=1&b64=1&hash=0.0&hasplugin=3.0.23&requestsrc=android'
-        response = self._lastpass._session.get(url)
+        params = {'mobile': 1,
+                  'b64': 1,
+                  'hash': 0.0,
+                  'hasplugin': '3.0.23',
+                  'requestsrc': 'android'}
+        url = f'{self._lastpass.host}/getaccts.php'
+        response = self._lastpass._session.get(url, params=params)
         if not response.ok:
             response.raise_for_status()
         return response.content
@@ -216,17 +221,17 @@ class Vault:
             encryption_key = self.key
             key = encryption_key
             rsa_private_key = None
-            for i in chunks:
-                if i.id == b'ACCT':
+            for chunk in chunks:
+                if chunk.id == b'ACCT':
                     # TODO: Put shared folder name as group in the account
-                    account = parse_ACCT(i, key, self._lastpass)
+                    account = parse_ACCT(chunk, key, self._lastpass)
                     if account:
                         accounts.append(account)
-                elif i.id == b'PRIK':
-                    rsa_private_key = parse_PRIK(i, encryption_key)
-                elif i.id == b'SHAR':
+                elif chunk.id == b'PRIK':
+                    rsa_private_key = parse_PRIK(chunk, encryption_key)
+                elif chunk.id == b'SHAR':
                     # After SHAR chunk all the following accounts are encrypted with a new key
-                    key = parse_SHAR(i, encryption_key, rsa_private_key)['encryption_key']
+                    key = parse_SHAR(chunk, encryption_key, rsa_private_key)['encryption_key']
             self._accounts = accounts
         return self._accounts
 
@@ -384,11 +389,6 @@ def decode_hex(data):
         raise TypeError()
 
 
-def decode_base64(data):
-    """Decodes a base64 encoded string into raw bytes."""
-    return b64decode(data)
-
-
 def decode_aes256_plain_auto(data, encryption_key):
     """Guesses AES cipher (EBC or CBD) from the length of the plain data."""
     assert isinstance(data, bytes)
@@ -425,7 +425,7 @@ def decode_aes256_ecb_plain(data, encryption_key):
 
 def decode_aes256_ecb_base64(data, encryption_key):
     """Decrypts base64 encoded AES-256 ECB bytes."""
-    return decode_aes256_ecb_plain(decode_base64(data), encryption_key)
+    return decode_aes256_ecb_plain(b64decode(data), encryption_key)
 
 
 def decode_aes256_cbc_plain(data, encryption_key):
@@ -450,8 +450,8 @@ def decode_aes256_cbc_base64(data, encryption_key):
         # And the rest is the base64 encoded encrypted payload.
         return decode_aes256(
             'cbc',
-            decode_base64(data[1:25]),
-            decode_base64(data[26:]),
+            b64decode(data[1:25]),
+            b64decode(data[26:]),
             encryption_key)
 
 
