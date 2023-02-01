@@ -18,6 +18,7 @@ class History:
     def datetime(self):
         return parse(self.date)
 
+
 @dataclass
 class Chunk:
     id: bytes

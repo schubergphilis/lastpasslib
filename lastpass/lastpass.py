@@ -168,8 +168,7 @@ class Vault:
     def _decrypt_blob(self, data):
         stream = ChunkStream(data)
         accounts = []
-        encryption_key = self.key
-        key = encryption_key
+        key = encryption_key = self.key
         rsa_private_key = None
         shared_folder = None
         for chunk in stream.chunks:
