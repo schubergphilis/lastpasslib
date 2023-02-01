@@ -15,7 +15,12 @@ from Crypto.Util import number
 from binascii import hexlify
 from requests import Session
 
-import parser
+from lastpassexceptions import (InvalidMfa,
+                                InvalidPassword,
+                                MfaRequired,
+                                ServerError,
+                                UnknownUsername,
+                                UnexpectedResponse)
 
 # Secure note types that contain account-like information
 ALLOWED_SECURE_NOTE_TYPES = [
@@ -25,34 +30,6 @@ ALLOWED_SECURE_NOTE_TYPES = [
     b"Instant Messenger",
 ]
 
-
-
-class UnknownResponse(Exception):
-    """"""
-
-
-class ServerError(Exception):
-    """"""
-
-
-class UnknownUsername(Exception):
-    """"""
-
-
-class InvalidPassword(Exception):
-    """"""
-
-
-class MfaRequired(Exception):
-    """"""
-
-
-class InvalidMfa(Exception):
-    """"""
-
-
-class InvalidYubiKey(Exception):
-    """"""
 
 
 class Lastpass:
@@ -98,17 +75,17 @@ class Lastpass:
         try:
             parsed_response = etree.fromstring(response.content)
         except ParseError:
-            raise UnknownResponse(response.text)
+            raise UnexpectedResponse(response.text)
         error = parsed_response.find('error')
         if error is not None:
             exceptions = {
-                "user_not_exists": UnknownUsername,
-                "password_invalid": InvalidPassword,
-                "googleauthrequired": MfaRequired,
+                'user_not_exists': UnknownUsername,
+                'password_invalid': InvalidPassword,
+                'googleauthrequired': MfaRequired,
                 'microsoftauthrequired': MfaRequired,
-                "googleauthfailed": InvalidMfa,
+                'googleauthfailed': InvalidMfa,
                 'microminiaturized': InvalidMfa,
-                "restrictiveness": InvalidMfa,
+                'restrictiveness': InvalidMfa,
             }
             exception = exceptions.get(error.attrib.get('cause'), ServerError)
             raise exception(error.attrib.get('message'))
