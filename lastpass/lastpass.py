@@ -34,17 +34,18 @@ ALLOWED_SECURE_NOTE_TYPES = [
 class Lastpass:
 
     def __init__(self, username, password, mfa, domain='lastpass.com'):
-        self.domain = f'https://{domain}'
-        self._headers = {'user-agent': 'lastpass-python/2.5.0'}
+        self.domain = domain
+        self.host = f'https://{domain}'
         self.username = username
         self._iteration_count = None
         self._vault = Vault(self, password)
+        self._authenticated_response_data = None
         self._session = self._get_authenticated_session(username, mfa)
 
     @property
     def iteration_count(self):
         if self._iteration_count is None:
-            url = f'{self.domain}/iterations.php'
+            url = f'{self.host}/iterations.php'
             response = requests.post(url, data={'email': self.username})
             if not response.ok:
                 response.raise_for_status()
@@ -86,15 +87,20 @@ class Lastpass:
             body['otp'] = mfa
         if client_id:
             body['imei'] = client_id
-        response = requests.post('https://lastpass.com/login.php', data=body, headers=self._headers)
+        headers = {'user-agent': 'lastpasslib'}
+        response = requests.post(f'{self.host}/login.php', data=body, headers=headers)
         parsed_response = self._validate_response(response)
         if parsed_response.tag == 'ok':
-            session.cookies.set('PHPSESSID', parsed_response.attrib.get('sessionid'), domain='lastpass.com')
+            data = parsed_response.attrib
+            session.cookies.set('PHPSESSID', data.get('sessionid'), domain=self.domain)
+            self._authenticated_response_data = data
         return session
 
     def logout(self):
-        url = 'https://lastpass.com/logout.php?mobile=1'
-        response = self._session.get(url)
+        params = {'skip_prompt': 1,
+                  'from_uri': '/'}
+        url = f'{self.host}/logout'
+        response = self._session.get(url, params=params)
         if not response.ok:
             response.raise_for_status()
         return response.ok
@@ -438,7 +444,7 @@ def decode_aes256_cbc_base64(data, encryption_key):
     if not data:
         return b''
     else:
-        # LastPass AES-256/CBC/base64 encryted string starts with an "!".
+        # LastPass AES-256/CBC/base64 encrypted string starts with an "!".
         # Next 24 bytes are the base64 encoded IV for the cipher.
         # Then comes the "|".
         # And the rest is the base64 encoded encrypted payload.
