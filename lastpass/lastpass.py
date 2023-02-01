@@ -1,5 +1,4 @@
 import codecs
-import hashlib
 import re
 import struct
 from base64 import b64decode
@@ -9,18 +8,19 @@ from xml.etree.ElementTree import ParseError
 
 import binascii
 import requests
+from hashlib import sha256, pbkdf2_hmac
 from Crypto.Cipher import AES, PKCS1_OAEP
 from Crypto.PublicKey import RSA
 from Crypto.Util import number
 from binascii import hexlify
 from requests import Session
 
-from lastpassexceptions import (InvalidMfa,
-                                InvalidPassword,
-                                MfaRequired,
-                                ServerError,
-                                UnknownUsername,
-                                UnexpectedResponse)
+from .lastpassexceptions import (InvalidMfa,
+                                 InvalidPassword,
+                                 MfaRequired,
+                                 ServerError,
+                                 UnknownUsername,
+                                 UnexpectedResponse)
 
 # Secure note types that contain account-like information
 ALLOWED_SECURE_NOTE_TYPES = [
@@ -31,7 +31,6 @@ ALLOWED_SECURE_NOTE_TYPES = [
 ]
 
 
-
 class Lastpass:
 
     def __init__(self, username, password, mfa):
@@ -40,7 +39,8 @@ class Lastpass:
         self.mfa = mfa
         self._headers = {'user-agent': 'lastpass-python/2.5.0'}
         self._iteration_count = self._get_iterations_by_email(username)
-        self._session = self._get_authenticated_session(username, password, mfa)
+        self._vault = Vault(self)
+        self._session = self._get_authenticated_session(username, mfa)
 
     @staticmethod
     def _get_iterations_by_email(email):
@@ -49,24 +49,6 @@ class Lastpass:
         if not response.ok:
             response.raise_for_status()
         return response.json()
-
-    @staticmethod
-    def make_key(username, password, key_iteration_count):
-        # type: (str, str, int) -> bytes
-        username = username.encode('utf-8')
-        password = password.encode('utf-8')
-        if key_iteration_count == 1:
-            return hashlib.sha256(f'{username}{password}').digest()
-        return hashlib.pbkdf2_hmac('sha256', password, username, key_iteration_count, 32)
-
-    @staticmethod
-    def make_hash(username, password, key_iteration_count):
-        # type: (str, str, int) -> bytes
-        password_utf = password.encode('utf-8')
-        key = Lastpass.make_key(username, password, key_iteration_count)
-        if key_iteration_count == 1:
-            return bytearray(hashlib.sha256(hexlify(key) + password_utf).hexdigest(), 'ascii')
-        return hexlify(hashlib.pbkdf2_hmac('sha256', key, password_utf, 1, 32))
 
     @staticmethod
     def _validate_response(response):
@@ -91,13 +73,13 @@ class Lastpass:
             raise exception(error.attrib.get('message'))
         return parsed_response
 
-    def _get_authenticated_session(self, username, password, mfa=None, client_id=None):
+    def _get_authenticated_session(self, username, mfa=None, client_id=None):
         session = Session()
         body = {'method': 'mobile',
                 'web': 1,
                 'xml': 1,
                 'username': username,
-                'hash': Lastpass.make_hash(username, password, self._iteration_count),
+                'hash': self._vault.hash,
                 'iterations': self._iteration_count, }
         if mfa:
             body['otp'] = mfa
@@ -119,22 +101,45 @@ class Lastpass:
         return response.ok
 
     @property
-    def secrets(self):
+    def vault(self):
+        return self._vault
+
+
+class Vault:
+    def __init__(self, lastpass_instance):
+        self._lastpass = lastpass_instance
+        self.username = lastpass_instance.username.encode('utf-8')
+        self.password = lastpass_instance.password.encode('utf-8')
+        self.key_iteration_count = lastpass_instance._iteration_count
+        self._accounts = None
+        self._key = None
+        self._hash = None
+
+    @property
+    def _data(self):
         url = 'https://lastpass.com/getaccts.php?mobile=1&b64=1&hash=0.0&hasplugin=3.0.23&requestsrc=android'
-        response = self._session.get(url)
+        response = self._lastpass._session.get(url)
         if not response.ok:
             response.raise_for_status()
-        container = SecretsContainer(self, response.content, self._iteration_count, self.username, self.password)
-        return container.accounts
+        return response.content
 
+    @property
+    def key(self):
+        if not self._key:
+            if self.key_iteration_count == 1:
+                self._key = sha256(f'{self.username}{self.password}').digest()
+            else:
+                self._key = pbkdf2_hmac('sha256', self.password, self.username, self.key_iteration_count, 32)
+        return self._key
 
-class SecretsContainer:
-    def __init__(self, lastpass_instance, data, key_iteration_count, username, password):
-        self._lastpass = lastpass_instance
-        self.username = username
-        self.password = password
-        self.key_iteration_count = key_iteration_count
-        self.accounts = self.parse_accounts(data)
+    @property
+    def hash(self):
+        if not self._hash:
+            if self.key_iteration_count == 1:
+                self._hash = bytearray(sha256(hexlify(self.key) + self.password).hexdigest(), 'ascii')
+            else:
+                self._hash = hexlify(pbkdf2_hmac('sha256', self.key, self.password, 1, 32))
+        return self._hash
 
     @staticmethod
     def is_complete(chunks):
@@ -157,7 +162,7 @@ class SecretsContainer:
     @staticmethod
     def read_size(stream):
         """Reads a chunk or an item ID."""
-        return SecretsContainer.read_uint32(stream)
+        return Vault.read_uint32(stream)
 
     @staticmethod
     def read_payload(stream, size):
@@ -175,14 +180,15 @@ class SecretsContainer:
         #   0004: 4
         #   0008: 0xDE 0xAD 0xBE 0xEF
         #   000C: --- Next chunk ---
-        return Chunk(SecretsContainer.read_id(stream), SecretsContainer.read_payload(stream, SecretsContainer.read_size(stream)))
+        return Chunk(Vault.read_id(stream), Vault.read_payload(stream, Vault.read_size(stream)))
 
     @staticmethod
     def chunk_data(data):
-        chunks = SecretsContainer.extract_chunks(data)
-        if not SecretsContainer.is_complete(chunks):
+        chunks = Vault.extract_chunks(data)
+        if not Vault.is_complete(chunks):
             raise ServerError('Blob is truncated')
         return chunks
+
     @staticmethod
     def extract_chunks(blob):
         """Splits the blob into chucks grouped by kind."""
@@ -193,29 +199,31 @@ class SecretsContainer:
         length = stream.tell()
         stream.seek(current_pos, 0)
         while stream.tell() < length:
-            chunks.append(SecretsContainer.read_chunk(stream))
+            chunks.append(Vault.read_chunk(stream))
         return chunks
 
-    def parse_accounts(self, data):
-        data = b64decode(data)
-        chunks = self.chunk_data(data)
-        accounts = []
-        encryption_key = Lastpass.make_key(self.username, self.password, self.key_iteration_count)
-        key = encryption_key
-        rsa_private_key = None
-        for i in chunks:
-            if i.id == b'ACCT':
-                # TODO: Put shared folder name as group in the account
-                account = parse_ACCT(i, key, self._lastpass)
-                if account:
-                    accounts.append(account)
-            elif i.id == b'PRIK':
-                rsa_private_key = parse_PRIK(i, encryption_key)
-            elif i.id == b'SHAR':
-                # After SHAR chunk all the folliwing accounts are enrypted with a new key
-                key = parse_SHAR(i, encryption_key, rsa_private_key)['encryption_key']
-
-        return accounts
+    @property
+    def secrets(self):
+        if not self._accounts:
+            data = b64decode(self._data)
+            chunks = self.chunk_data(data)
+            accounts = []
+            encryption_key = self.key
+            key = encryption_key
+            rsa_private_key = None
+            for i in chunks:
+                if i.id == b'ACCT':
+                    # TODO: Put shared folder name as group in the account
+                    account = parse_ACCT(i, key, self._lastpass)
+                    if account:
+                        accounts.append(account)
+                elif i.id == b'PRIK':
+                    rsa_private_key = parse_PRIK(i, encryption_key)
+                elif i.id == b'SHAR':
+                    # After SHAR chunk all the following accounts are encrypted with a new key
+                    key = parse_SHAR(i, encryption_key, rsa_private_key)['encryption_key']
+        self._accounts = accounts
+        return self._accounts
 
 
 class Account(object):
@@ -236,7 +244,6 @@ class Account(object):
         if not response.ok:
             response.raise_for_status()
         return response.json().get('history')
-
 
 
 class Chunk(object):
@@ -355,7 +362,7 @@ def read_item(stream):
     #   0000: 4
     #   0004: 0xDE 0xAD 0xBE 0xEF
     #   0008: --- Next item ---
-    return SecretsContainer.read_payload(stream, SecretsContainer.read_size(stream))
+    return Vault.read_payload(stream, Vault.read_size(stream))
 
 
 def skip_item(stream, times=1):
