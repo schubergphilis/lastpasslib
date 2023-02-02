@@ -152,9 +152,10 @@ class Lastpass:
         return self._get_history_by_date(start_date, end_date, 'events')
 
     def _get_history_by_date(self, start_date, end_date, event_type):
-        today = datetime.date.today().strftime('%Y-%m-%d')
-        start_date = parse(start_date).strftime('%Y-%m-%d') if start_date else today
-        end_date = parse(end_date).strftime('%Y-%m-%d') if end_date else today
+        date_format = '%Y-%m-%d'
+        today = datetime.date.today().strftime(date_format)
+        start_date = parse(start_date).strftime(date_format) if start_date else today
+        end_date = parse(end_date).strftime(date_format) if end_date else today
         form_data = {'start': 0,
                      'limit': 20000,
                      'sort': 'date',
