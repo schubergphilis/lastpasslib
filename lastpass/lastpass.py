@@ -138,7 +138,7 @@ class Lastpass:
         return self._shared_folders
 
     def get_shared_folder_by_id(self, id_):
-        return next((folder for folder in self.shared_folders if folder.id == id_.decode('utf-8')), None)
+        return next((folder for folder in self.shared_folders if folder.id == id_), None)
 
     @property
     def vault(self):
@@ -234,9 +234,9 @@ class Vault:
             elif chunk.id == b'SHAR':
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
-                shared_folder_data, key = self._parse_shared_folder(chunk, encryption_key, rsa_private_key)
-                shared_folder = self._lastpass.get_shared_folder_by_id(shared_folder_data[0])
-                shared_folder.shared_name = shared_folder_data[1]
+                folder_id, folder_name, key = self._parse_shared_folder(chunk, encryption_key, rsa_private_key)
+                shared_folder = self._lastpass.get_shared_folder_by_id(folder_id.decode('utf-8'))
+                shared_folder.shared_name = folder_name.decode('utf-8')
         return accounts
 
     @staticmethod
@@ -311,4 +311,4 @@ class Vault:
         else:
             key = Decoder.decode_hex(Decoder.decode_aes256_auto(key, encryption_key))
         name = Decoder.decode_aes256_auto(encrypted_name, key, base64=True)
-        return (id_, name), key
+        return id_, name, key
