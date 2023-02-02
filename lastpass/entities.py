@@ -232,7 +232,7 @@ class Secret(object):
             response = self._lastpass._session.get(url, params=params)
             if not response.ok:
                 response.raise_for_status()
-            self._history = [SecretHistory(*data.values()) for data in response.json().get('history')]
+            self._history = [SecretHistory(*data.values()) for data in response.json().get('history', [])]
         return self._history
 
     def get_latest_update_person(self):
