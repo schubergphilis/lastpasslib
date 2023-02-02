@@ -87,8 +87,8 @@ class Lastpass:
                 'googleauthrequired': MfaRequired,
                 'microsoftauthrequired': MfaRequired,
                 'googleauthfailed': InvalidMfa,
-                'microminiaturized': InvalidMfa,
-                'restrictiveness': InvalidMfa,
+                'microsoftauthfailed': InvalidMfa,
+                'yubikeyrestricted': InvalidMfa,
             }
             exception = exceptions.get(error.attrib.get('cause'), ServerError)
             raise exception(error.attrib.get('message'))
@@ -172,7 +172,7 @@ class Lastpass:
         if not response.ok:
             response.raise_for_status()
         items = response.json().get('response', {}).get('value', {}).get('items', [])
-        return [AccountHistory(**item) for item in items]
+        return [AccountHistory(*item.values()) for item in items]
 
 
 class Vault:

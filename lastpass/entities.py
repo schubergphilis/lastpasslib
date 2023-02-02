@@ -13,11 +13,11 @@ from .lastpassexceptions import ServerError
 
 @dataclass
 class AccountHistory:
-    name1: str
-    name2: str
-    name3: str
-    name4: str
-    name5: str
+    _name1: str
+    _name2: str
+    _name3: str
+    _name4: str
+    _name5: str
     name: str
     group: str
     date: str
@@ -25,7 +25,7 @@ class AccountHistory:
     reverse: str
     action: str
     ulid: str
-    shareid: str
+    share_id: str
 
     @property
     def datetime(self):
@@ -33,7 +33,7 @@ class AccountHistory:
 
     @property
     def name_alternative(self):
-        return ''.join([self.name1, self.name2, self.name3, self.name4, self.name5])
+        return ''.join([self._name1, self._name2, self._name3, self._name4, self._name5])
 
 
 @dataclass
