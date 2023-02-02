@@ -67,7 +67,26 @@ class Chunk:
 @dataclass
 class SharedFolder:
     id: str
+    read_only: str
+    give: str
     name: str
+    deleted: str
+    last_modified: str
+    association: str
+    can_administer: str
+    invisible: str
+    created: str
+    cgid: str
+    download: str
+    outside_enterprise: str
+    cid: str
+    sharedata: str
+    sharer: str
+    shared_name: str = None
+
+    @property
+    def last_modified_datetime(self):
+        return parse(self.last_modified)
 
 
 class Stream:

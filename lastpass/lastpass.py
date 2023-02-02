@@ -29,8 +29,23 @@ from .lastpassexceptions import (InvalidMfa,
 ALLOWED_SECURE_NOTE_TYPES = [
     b"Server",
     b"Email Account",
+    b"SSH Key",
     b"Database",
+    b"Stripe Key",
+    b"Passport",
+    b"Membership",
+    b"Wi-Fi Password",
+    b"Software License",
+    b"Social Security",
+    b"Address",
+    b"Bank Account",
+    b"Credit Card",
+    b"Email Account",
+    b"Health Insurance",
+    b"Insurance",
     b"Instant Messenger",
+    b"Generic",
+    b"Custom",
 ]
 
 
@@ -44,6 +59,7 @@ class Lastpass:
         self._vault = Vault(self, password)
         self._authenticated_response_data = None
         self._session = self._get_authenticated_session(username, mfa)
+        self._shared_folders = None
 
     @property
     def iteration_count(self):
@@ -109,6 +125,22 @@ class Lastpass:
         return response.ok
 
     @property
+    def shared_folders(self):
+        if self._shared_folders is None:
+            url = f'{self.host}/getSharedFolderInfo.php'
+            data = {'lpversion': '4.0',
+                    'method': 'web',
+                    'token': self._authenticated_response_data.get('token')}
+            response = self._session.post(url, data=data)
+            if not response.ok:
+                response.raise_for_status()
+            self._shared_folders = [SharedFolder(*data.values()) for data in response.json().get('folders')]
+        return self._shared_folders
+
+    def get_shared_folder_by_id(self, id_):
+        return next((folder for folder in self.shared_folders if folder.id == id_.decode('utf-8')), None)
+
+    @property
     def vault(self):
         return self._vault
 
@@ -119,8 +151,9 @@ class Lastpass:
         return self._get_history_by_date(start_date, end_date, 'events')
 
     def _get_history_by_date(self, start_date, end_date, event_type):
-        start_date = parse(start_date).strftime('%Y-%m-%d') if start_date else datetime.date.today().strftime('%Y-%m-%d')
-        end_date = parse(end_date).strftime('%Y-%m-%d') if end_date else datetime.date.today().strftime('%Y-%m-%d')
+        today = datetime.date.today().strftime('%Y-%m-%d')
+        start_date = parse(start_date).strftime('%Y-%m-%d') if start_date else today
+        end_date = parse(end_date).strftime('%Y-%m-%d') if end_date else today
         form_data = {'start': 0,
                      'limit': 20000,
                      'sort': 'date',
@@ -148,7 +181,7 @@ class Vault:
         self.key_iteration_count = lastpass_instance.iteration_count
         self._key = None
         self._hash = None
-        self._accounts = None
+        self._secrets = None
 
     @property
     def key(self):
@@ -183,9 +216,9 @@ class Vault:
 
     @property
     def secrets(self):
-        if not self._accounts:
-            self._accounts = self._decrypt_blob(self._blob)
-        return self._accounts
+        if not self._secrets:
+            self._secrets = self._decrypt_blob(self._blob)
+        return self._secrets
 
     def _decrypt_blob(self, data):
         blob = Blob(data)
@@ -195,17 +228,19 @@ class Vault:
         shared_folder = None
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
-                accounts.append(self._parse_account(chunk, key, self._lastpass, shared_folder))
+                accounts.append(self._parse_secret(chunk, key, self._lastpass, shared_folder))
             elif chunk.id == b'PRIK':
                 rsa_private_key = self._decrypt_rsa_key(chunk, encryption_key)
             elif chunk.id == b'SHAR':
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
-                shared_folder, key = self._parse_shared_folder(chunk, encryption_key, rsa_private_key)
+                shared_folder_data, key = self._parse_shared_folder(chunk, encryption_key, rsa_private_key)
+                shared_folder = self._lastpass.get_shared_folder_by_id(shared_folder_data[0])
+                shared_folder.shared_name = shared_folder_data[1]
         return accounts
 
     @staticmethod
-    def _parse_account(chunk, encryption_key, lastpass_instance, shared_folder):
+    def _parse_secret(chunk, encryption_key, lastpass_instance, shared_folder):
         """Parses an account chunk, decrypts and creates an Account object.
         All secure notes are ACCTs but not all of them store account information.
         """
@@ -276,4 +311,4 @@ class Vault:
         else:
             key = Decoder.decode_hex(Decoder.decode_aes256_auto(key, encryption_key))
         name = Decoder.decode_aes256_auto(encrypted_name, key, base64=True)
-        return SharedFolder(id_, name), key
+        return (id_, name), key
