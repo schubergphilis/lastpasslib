@@ -224,13 +224,13 @@ class Vault:
 
     def _decrypt_blob(self, data):
         blob = Blob(data)
-        accounts = []
+        secrets = []
         key = self.key
         rsa_private_key = None
         shared_folder = None
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
-                accounts.append(self._parse_secret(chunk, key, self._lastpass, shared_folder))
+                secrets.append(self._parse_secret(chunk, key, self._lastpass, shared_folder))
             elif chunk.id == b'PRIK':
                 rsa_private_key = self._decrypt_rsa_key(chunk, self.key)
             elif chunk.id == b'SHAR':
@@ -239,7 +239,7 @@ class Vault:
                 folder_id, folder_name, key = self._parse_shared_folder(chunk, self.key, rsa_private_key)
                 shared_folder = self._lastpass.get_shared_folder_by_id(folder_id.decode('utf-8'))
                 shared_folder.shared_name = folder_name.decode('utf-8')
-        return accounts
+        return secrets
 
     @staticmethod
     def _parse_secret(chunk, encryption_key, lastpass_instance, shared_folder):
