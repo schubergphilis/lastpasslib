@@ -11,7 +11,7 @@ from binascii import hexlify
 from requests import Session
 
 from .entities import (Account,
-                       ChunkStream,
+                       Blob,
                        Decoder,
                        SharedFolder,
                        Stream)
@@ -158,12 +158,12 @@ class Vault:
         return self._accounts
 
     def _decrypt_blob(self, data):
-        stream = ChunkStream(data)
+        blob = Blob(data)
         accounts = []
         key = encryption_key = self.key
         rsa_private_key = None
         shared_folder = None
-        for chunk in stream.chunks:
+        for chunk in blob.chunks:
             if chunk.id == b'ACCT':
                 accounts.append(self._parse_account(chunk, key, self._lastpass, shared_folder))
             elif chunk.id == b'PRIK':

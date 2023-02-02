@@ -75,7 +75,7 @@ class Stream:
             self.next_item()
 
 
-class ChunkStream:
+class Blob:
     def __init__(self, blob):
         self._data = b64decode(blob)
         self._chunks = []
@@ -105,7 +105,7 @@ class ChunkStream:
                 chunk_id = stream.next_by_size(4)
                 payload = stream.next_item()
                 chunks.append(Chunk(chunk_id, payload))
-            if not ChunkStream.is_complete(chunks):
+            if not Blob.is_complete(chunks):
                 raise ServerError('Blob is truncated')
             self._chunks = chunks
         return self._chunks
