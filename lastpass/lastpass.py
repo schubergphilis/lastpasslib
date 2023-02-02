@@ -224,18 +224,18 @@ class Vault:
     def _decrypt_blob(self, data):
         blob = Blob(data)
         accounts = []
-        key = encryption_key = self.key
+        key = self.key
         rsa_private_key = None
         shared_folder = None
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
                 accounts.append(self._parse_secret(chunk, key, self._lastpass, shared_folder))
             elif chunk.id == b'PRIK':
-                rsa_private_key = self._decrypt_rsa_key(chunk, encryption_key)
+                rsa_private_key = self._decrypt_rsa_key(chunk, self.key)
             elif chunk.id == b'SHAR':
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
-                folder_id, folder_name, key = self._parse_shared_folder(chunk, encryption_key, rsa_private_key)
+                folder_id, folder_name, key = self._parse_shared_folder(chunk, self.key, rsa_private_key)
                 shared_folder = self._lastpass.get_shared_folder_by_id(folder_id.decode('utf-8'))
                 shared_folder.shared_name = folder_name.decode('utf-8')
         return accounts
