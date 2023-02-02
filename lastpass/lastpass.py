@@ -10,7 +10,7 @@ from Crypto.Util import number
 from binascii import hexlify
 from requests import Session
 
-from .entities import (Account,
+from .entities import (Secret,
                        Blob,
                        Decoder,
                        SharedFolder,
@@ -196,7 +196,7 @@ class Vault:
                 url = parsed_notes.get('url', url)
                 username = parsed_notes.get('username', username)
                 password = parsed_notes.get('password', password)
-        return Account(lastpass_instance, id_, name, username, password, url, group, notes, shared_folder)
+        return Secret(lastpass_instance, id_, name, username, password, url, group, notes, shared_folder)
 
     @staticmethod
     def _parse_secure_note(notes):

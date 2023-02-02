@@ -12,7 +12,7 @@ from .lastpassexceptions import ServerError
 
 
 @dataclass
-class History:
+class SecretHistory:
     date: str
     value: str
     person: str
@@ -167,7 +167,7 @@ class Decoder:
         return decrypted_data[0:-ord(decrypted_data[-1:])]
 
 
-class Account(object):
+class Secret(object):
     def __init__(self, lastpass_instance, id_, name, username, password, url, group, notes=None, shared_folder=None):
         self._lastpass = lastpass_instance
         self.id = id_.decode('utf-8')
@@ -188,7 +188,7 @@ class Account(object):
             response = self._lastpass._session.get(url, params=params)
             if not response.ok:
                 response.raise_for_status()
-            self._history = [History(*data.values()) for data in response.json().get('history')]
+            self._history = [SecretHistory(*data.values()) for data in response.json().get('history')]
         return self._history
 
     def get_latest_update_person(self):
