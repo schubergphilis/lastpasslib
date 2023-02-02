@@ -48,17 +48,6 @@ class SecretHistory:
 
 
 @dataclass
-class SecretHistory:
-    date: str
-    value: str
-    person: str
-
-    @property
-    def datetime(self):
-        return parse(self.date)
-
-
-@dataclass
 class Chunk:
     id: bytes
     payload: bytes

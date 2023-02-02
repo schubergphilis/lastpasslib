@@ -135,6 +135,7 @@ class Lastpass:
             if not response.ok:
                 response.raise_for_status()
             self._shared_folders = [SharedFolder(*data.values()) for data in response.json().get('folders')]
+            # response.json().get('superusers') exposes a {uid: , key:} dictionary of superusers.
         return self._shared_folders
 
     def get_shared_folder_by_id(self, id_):
