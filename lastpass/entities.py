@@ -12,6 +12,42 @@ from .lastpassexceptions import ServerError
 
 
 @dataclass
+class AccountHistory:
+    name1: str
+    name2: str
+    name3: str
+    name4: str
+    name5: str
+    name: str
+    group: str
+    date: str
+    ip: str
+    reverse: str
+    action: str
+    ulid: str
+    shareid: str
+
+    @property
+    def datetime(self):
+        return parse(self.date)
+
+    @property
+    def name_alternative(self):
+        return ''.join([self.name1, self.name2, self.name3, self.name4, self.name5])
+
+
+@dataclass
+class SecretHistory:
+    date: str
+    value: str
+    person: str
+
+    @property
+    def datetime(self):
+        return parse(self.date)
+
+
+@dataclass
 class SecretHistory:
     date: str
     value: str

@@ -1,7 +1,9 @@
+import datetime
 import re
 from hashlib import sha256, pbkdf2_hmac
 from xml.etree import ElementTree as etree
 from xml.etree.ElementTree import ParseError
+from dateutil.parser import parse
 
 import requests
 from Crypto.Cipher import PKCS1_OAEP
@@ -10,9 +12,10 @@ from Crypto.Util import number
 from binascii import hexlify
 from requests import Session
 
-from .entities import (Secret,
+from .entities import (AccountHistory,
                        Blob,
                        Decoder,
+                       Secret,
                        SharedFolder,
                        Stream)
 from .lastpassexceptions import (InvalidMfa,
@@ -108,6 +111,33 @@ class Lastpass:
     @property
     def vault(self):
         return self._vault
+
+    def get_login_history_by_date(self, start_date=None, end_date=None):
+        return self._get_history_by_date(start_date, end_date, 'logins')
+
+    def get_event_history_by_date(self, start_date=None, end_date=None):
+        return self._get_history_by_date(start_date, end_date, 'events')
+
+    def _get_history_by_date(self, start_date, end_date, event_type):
+        start_date = parse(start_date).strftime('%Y-%m-%d') if start_date else datetime.date.today().strftime('%Y-%m-%d')
+        end_date = parse(end_date).strftime('%Y-%m-%d') if end_date else datetime.date.today().strftime('%Y-%m-%d')
+        form_data = {'start': 0,
+                     'limit': 20000,
+                     'sort': 'date',
+                     'dir': 'ASC'}
+        params = {'data': 1,
+                  'frame': 1,
+                  'aid': None,
+                  'startdate': start_date,
+                  'enddate': end_date,
+                  'type': event_type,
+                  'token': self._authenticated_response_data.get('token')}
+        url = f'{self.host}/history.php'
+        response = self._session.post(url, params=params, data=form_data)
+        if not response.ok:
+            response.raise_for_status()
+        items = response.json().get('response', {}).get('value', {}).get('items', [])
+        return [AccountHistory(**item) for item in items]
 
 
 class Vault:
