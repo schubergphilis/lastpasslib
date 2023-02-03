@@ -120,8 +120,6 @@ class Vault:
 
     @staticmethod
     def _parse_secure_note(notes):
-        from pprint import pprint
-        pprint(notes)
         info = {}
         valid_lines = [line for line in notes.split('\n')
                        if not any([not line, ':' not in line])]
