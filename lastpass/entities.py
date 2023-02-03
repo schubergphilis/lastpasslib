@@ -226,13 +226,13 @@ class Secret(object):
     def username_history(self):
         if self._username_history is None:
             self._username_history = self._get_history_by_attribute('username')
-        return self._get_history_by_attribute('username')
+        return self._username_history
 
     @property
     def password_history(self):
         if self._password_history is None:
             self._password_history = self._get_history_by_attribute('password')
-        return self._get_history_by_attribute('password')
+        return self._password_history
 
     def _get_history_by_attribute(self, attribute):
         url = f'{self._lastpass.host}/lmiapi/accounts/{self.id}/history/{attribute}'
