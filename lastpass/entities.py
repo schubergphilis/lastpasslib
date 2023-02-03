@@ -1,3 +1,4 @@
+import logging
 import re
 from hashlib import sha256, pbkdf2_hmac
 
@@ -10,9 +11,14 @@ from .configuration import ALLOWED_SECURE_NOTE_TYPES
 from .datamodels import SecretHistory
 from .decryption import Blob, Decoder, Stream
 
+LOGGER_BASENAME = 'entities'
+LOGGER = logging.getLogger(LOGGER_BASENAME)
+LOGGER.addHandler(logging.NullHandler())
+
 
 class Vault:
     def __init__(self, lastpass_instance, password):
+        self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
         self._lastpass = lastpass_instance
         self.username = lastpass_instance.username.encode('utf-8')
         self.password = password.encode('utf-8')
@@ -153,6 +159,13 @@ class Vault:
             key = Decoder.decode_hex(Decoder.decode_aes256_auto(key, encryption_key))
         name = Decoder.decode_aes256_auto(encrypted_name, key, base64=True)
         return id_, name, key
+
+    def refresh(self):
+        self._logger.info('Cleaning up secrets and blob.')
+        self._secrets = None
+        self._blob_ = None
+        self._logger.info('Re retrieving secrets.')
+        _ = self.secrets
 
 
 class Secret(object):

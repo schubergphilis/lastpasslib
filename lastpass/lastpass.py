@@ -1,5 +1,5 @@
-import logging
 import datetime
+import logging
 from xml.etree import ElementTree as etree
 from xml.etree.ElementTree import ParseError
 
@@ -17,7 +17,6 @@ from .lastpassexceptions import (ApiLimitReached,
                                  ServerError,
                                  UnknownUsername,
                                  UnexpectedResponse)
-
 
 LOGGER_BASENAME = 'lastpasslib'
 LOGGER = logging.getLogger(LOGGER_BASENAME)
