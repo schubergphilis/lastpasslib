@@ -1,14 +1,17 @@
+import logging
 import datetime
 from xml.etree import ElementTree as etree
 from xml.etree.ElementTree import ParseError
 
+import backoff
 import requests
 from dateutil.parser import parse
 from requests import Session
 
 from .datamodels import AccountHistory, SharedFolder
 from .entities import Vault
-from .lastpassexceptions import (InvalidMfa,
+from .lastpassexceptions import (ApiLimitReached,
+                                 InvalidMfa,
                                  InvalidPassword,
                                  MfaRequired,
                                  ServerError,
@@ -16,23 +19,67 @@ from .lastpassexceptions import (InvalidMfa,
                                  UnexpectedResponse)
 
 
+LOGGER_BASENAME = 'lastpasslib'
+LOGGER = logging.getLogger(LOGGER_BASENAME)
+LOGGER.addHandler(logging.NullHandler())
+
+
 class Lastpass:
 
     def __init__(self, username, password, mfa, domain='lastpass.com'):
+        self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
         self.domain = domain
         self.host = f'https://{domain}'
         self.username = username
         self._iteration_count = None
         self._vault = Vault(self, password)
         self._authenticated_response_data = None
-        self._session = self._get_authenticated_session(username, mfa)
+        self.session = self._get_authenticated_session(username, mfa)
+        self._monkey_patch_session()
         self._shared_folders = None
+
+    def _monkey_patch_session(self):
+        """Gets original request method and overrides it with the patched one.
+
+        Returns:
+            Response: Response instance.
+
+        """
+        self.session.original_request = self.session.request
+        self.session.request = self._patched_request
+
+    @backoff.on_exception(backoff.expo,
+                          ApiLimitReached,
+                          max_time=60)
+    def _patched_request(self, method, url, **kwargs):
+        """Patch the original request method from requests.Sessions library.
+
+        Args:
+            method (str): HTTP verb as string.
+            url (str): string.
+            kwargs: keyword arguments.
+
+        Raises:
+            ApiLimitReached: Raised when the Lastpass API limit is reached.
+
+        Returns:
+            Response: Response instance.
+
+        """
+        self._logger.debug(f'{method.upper()} request to url :{url} with kwargs: {kwargs}.')
+        response = self.session.original_request(method, url, **kwargs)  # noqa
+        self._logger.debug(f'Response status: {response.status_code} with content: {response.content}.')
+        if response.status_code == 429:
+            self._logger.warning('Api is exhausted for endpoint, backing off.')
+            raise ApiLimitReached
+        return response
 
     @property
     def iteration_count(self):
         if self._iteration_count is None:
             url = f'{self.host}/iterations.php'
-            response = requests.post(url, data={'email': self.username})
+            data = {'email': self.username}
+            response = requests.post(url, data=data)
             if not response.ok:
                 response.raise_for_status()
             self._iteration_count = response.json()
@@ -82,15 +129,6 @@ class Lastpass:
             self._authenticated_response_data = data
         return session
 
-    def logout(self):
-        params = {'skip_prompt': 1,
-                  'from_uri': '/'}
-        url = f'{self.host}/logout'
-        response = self._session.get(url, params=params)
-        if not response.ok:
-            response.raise_for_status()
-        return response.ok
-
     @property
     def shared_folders(self):
         if self._shared_folders is None:
@@ -98,7 +136,7 @@ class Lastpass:
             data = {'lpversion': '4.0',
                     'method': 'web',
                     'token': self._authenticated_response_data.get('token')}
-            response = self._session.post(url, data=data)
+            response = self.session.post(url, data=data)
             if not response.ok:
                 response.raise_for_status()
             self._shared_folders = [SharedFolder(*data.values()) for data in response.json().get('folders')]
@@ -135,9 +173,17 @@ class Lastpass:
                   'type': event_type,
                   'token': self._authenticated_response_data.get('token')}
         url = f'{self.host}/history.php'
-        response = self._session.post(url, params=params, data=form_data)
+        response = self.session.post(url, params=params, data=form_data)
         if not response.ok:
             response.raise_for_status()
         items = response.json().get('response', {}).get('value', {}).get('items', [])
         return [AccountHistory(*item.values()) for item in items]
 
+    def logout(self):
+        params = {'skip_prompt': 1,
+                  'from_uri': '/'}
+        url = f'{self.host}/logout'
+        response = self.session.get(url, params=params)
+        if not response.ok:
+            response.raise_for_status()
+        return response.ok

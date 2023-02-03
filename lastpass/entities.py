@@ -19,6 +19,7 @@ class Vault:
         self.key_iteration_count = lastpass_instance.iteration_count
         self._key = None
         self._hash = None
+        self._blob_ = None
         self._secrets = None
 
     @property
@@ -41,16 +42,18 @@ class Vault:
 
     @property
     def _blob(self):
-        params = {'mobile': 1,
-                  'b64': 1,
-                  'hash': 0.0,
-                  'hasplugin': '3.0.23',
-                  'requestsrc': 'android'}
-        url = f'{self._lastpass.host}/getaccts.php'
-        response = self._lastpass._session.get(url, params=params)
-        if not response.ok:
-            response.raise_for_status()
-        return response.content
+        if self._blob_ is None:
+            params = {'mobile': 1,
+                      'b64': 1,
+                      'hash': 0.0,
+                      'hasplugin': '3.0.23',
+                      'requestsrc': 'android'}
+            url = f'{self._lastpass.host}/getaccts.php'
+            response = self._lastpass.session.get(url, params=params)
+            if not response.ok:
+                response.raise_for_status()
+            self._blob_ = response.content
+        return self._blob_
 
     @property
     def secrets(self):
@@ -170,7 +173,7 @@ class Secret(object):
         if self._history is None:
             url = f'{self._lastpass.host}/lmiapi/accounts/{self.id}/history/note'
             params = {'sharedFolderId': self.shared_folder.id} if self.shared_folder else {}
-            response = self._lastpass._session.get(url, params=params)
+            response = self._lastpass.session.get(url, params=params)
             if not response.ok:
                 response.raise_for_status()
             self._history = [SecretHistory(*data.values()) for data in response.json().get('history', [])]
