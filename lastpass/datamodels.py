@@ -4,7 +4,7 @@ from dateutil.parser import parse
 
 
 @dataclass
-class AccountHistory:
+class Event:
     _name1: str
     _name2: str
     _name3: str
@@ -34,7 +34,7 @@ class AccountHistory:
 
 
 @dataclass
-class SecretHistory:
+class History:
     date: str
     value: str
     person: str

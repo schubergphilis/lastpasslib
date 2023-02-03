@@ -8,7 +8,7 @@ import requests
 from dateutil.parser import parse
 from requests import Session
 
-from .datamodels import AccountHistory, SharedFolder
+from .datamodels import Event, SharedFolder
 from .entities import Vault
 from .lastpassexceptions import (ApiLimitReached,
                                  InvalidMfa,
@@ -73,6 +73,7 @@ class Lastpass:
             raise ApiLimitReached
         return response
 
+    @property
     def token(self):
         return self._authenticated_response_data.get('token')
 
@@ -179,7 +180,7 @@ class Lastpass:
         if not response.ok:
             response.raise_for_status()
         items = response.json().get('response', {}).get('value', {}).get('items', [])
-        return [AccountHistory(*item.values()) for item in items]
+        return [Event(*item.values()) for item in items]
 
     def logout(self):
         params = {'skip_prompt': 1,

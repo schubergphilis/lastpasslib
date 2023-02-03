@@ -1,11 +1,12 @@
 import logging
+from datetime import datetime
 from hashlib import sha256, pbkdf2_hmac
 
 from Crypto.Cipher import PKCS1_OAEP
 from binascii import hexlify
 
 from .configuration import ALLOWED_SECURE_NOTE_TYPES
-from .datamodels import SecretHistory
+from .datamodels import History
 from .decryption import Blob, Decoder, Stream
 
 LOGGER_BASENAME = 'entities'
@@ -64,6 +65,9 @@ class Vault:
             self._secrets = self._decrypt_blob(self._blob)
         return self._secrets
 
+    def get_secret_by_name(self, name):
+        return next((secret for secret in self.secrets if secret.name == name), None)
+
     def _decrypt_blob(self, data):
         blob = Blob(data)
         secrets = []
@@ -72,7 +76,8 @@ class Vault:
         shared_folder = None
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
-                secrets.append(self._parse_secret(chunk, key, self._lastpass, shared_folder))
+                data = self._parse_secret(chunk, key)
+                secrets.append(Secret(self._lastpass, data, shared_folder))
             elif chunk.id == b'PRIK':
                 rsa_private_key = Decoder.decrypt_rsa_key(chunk, self.key)
             elif chunk.id == b'SHAR':
@@ -84,41 +89,49 @@ class Vault:
         return secrets
 
     @staticmethod
-    def _parse_secret(chunk, encryption_key, lastpass_instance, shared_folder):
+    def _parse_secret(chunk, encryption_key):
         """Parses an account chunk, decrypts and creates an Account object.
         All secure notes are ACCTs but not all of them store account information.
         """
         stream = Stream(chunk.payload)
-        id_ = stream.next_item()
-        name = Decoder.decrypt_aes256_auto(stream.next_item(), encryption_key)
-        group = Decoder.decrypt_aes256_auto(stream.next_item(), encryption_key)
-        url = Decoder.decode_hex(stream.next_item())
-        notes = Decoder.decrypt_aes256_auto(stream.next_item(), encryption_key)
-        stream.skip_item(2)
-        username = Decoder.decrypt_aes256_auto(stream.next_item(), encryption_key)
-        password = Decoder.decrypt_aes256_auto(stream.next_item(), encryption_key)
-        stream.skip_item(2)
-        secure_note = stream.next_item()
-        if secure_note == b'1':
-            parsed_notes = Vault._parse_secure_note(notes)
+        attributes = ['id', 'name', 'group', 'url', 'notes', 'favorite', 'shared_from_id', 'username', 'password',
+                      'password_protected', 'generate_password', 'is_secure_note', 'last_touch_timestamp', 'auto_login',
+                      'never_autofill', 'realm_data', 'fi_id', 'custom_js', 'submit_id', 'captcha_id', 'ur_id',
+                      'basic_auth', 'method', 'action', 'group_id', 'deleted', 'attach_key_encrypted',
+                      'attachment_present', 'individual_share', 'note_type', 'no_alert', 'last_modified_gmt',
+                      'has_been_shared', 'last_password_change_gmt', 'created_gmt', 'vulnerable']
+        attributes.extend([f'undocumented_attribute_{index}' for index in range(1, 4)])
+        attributes.append('mfa_seed')
+        attributes.extend([f'undocumented_attribute_{index}' for index in range(4, 7)])
+        encrypted = ['name', 'group', 'notes', 'username', 'password', 'mfa_seed', 'undocumented_attribute_4']
+        data = {attribute: stream.next_item() for attribute in attributes}
+        decrypted_data = {attribute: Decoder.decrypt_aes256_auto(data.get(attribute), encryption_key)
+                          for attribute in encrypted}
+        data.update(decrypted_data)
+        data['url'] = Decoder.decode_hex(data.get('url'))
+        decoded_data = {key: value.decode('utf-8') for key, value in data.items()}
+        if decoded_data.get('is_secure_note') == '1':
+            parsed_notes = Vault._parse_secure_note(decoded_data.get('notes'))
             if parsed_notes.get('type') in ALLOWED_SECURE_NOTE_TYPES:
-                url = parsed_notes.get('url', url)
-                username = parsed_notes.get('username', username)
-                password = parsed_notes.get('password', password)
-        return Secret(lastpass_instance, id_, name, username, password, url, group, notes, shared_folder)
+                decoded_data['url'] = parsed_notes.get('url', decoded_data.get('url'))
+                decoded_data['username'] = parsed_notes.get('username', decoded_data.get('username'))
+                decoded_data['password'] = parsed_notes.get('password', decoded_data.get('password'))
+        return decoded_data
 
     @staticmethod
     def _parse_secure_note(notes):
+        from pprint import pprint
+        pprint(notes)
         info = {}
-        valid_lines = [line for line in notes.split(b'\n')
-                       if not any([not line, b':' not in line])]
-        key_mapping = {b'NoteType': 'type',
-                       b'Hostname': 'url',
-                       b'Username': 'username',
-                       b'Password': 'password'}
+        valid_lines = [line for line in notes.split('\n')
+                       if not any([not line, ':' not in line])]
+        key_mapping = {'NoteType': 'type',
+                       'Hostname': 'url',
+                       'Username': 'username',
+                       'Password': 'password'}
         for line in valid_lines:
             # Split only once so that strings like "Hostname:host.example.com:80" get interpreted correctly
-            key, value = line.split(b':', 1)
+            key, value = line.split(':', 1)
             entry = key_mapping.get(key)
             if entry:
                 info[entry] = value
@@ -152,31 +165,86 @@ class Vault:
 
 
 class Secret(object):
-    def __init__(self, lastpass_instance, id_, name, username, password, url, group, notes=None, shared_folder=None):
+    def __init__(self, lastpass_instance, data, shared_folder=None):
         self._lastpass = lastpass_instance
-        self.id = id_.decode('utf-8')
-        self.name = name.decode('utf-8')
-        self.username = username.decode('utf-8')
-        self.password = password.decode('utf-8')
-        self.url = url.decode('utf-8')
-        self.group = group.decode('utf-8')
-        self.notes = notes.decode('utf-8')
-        self.shared_folder = shared_folder
-        self._history = None
+        self._data = data
+        self._shared_folder = shared_folder
+        self._note_history = None
+        self._username_history = None
+        self._password_history = None
 
     @property
-    def history(self):
-        if self._history is None:
-            url = f'{self._lastpass.host}/lmiapi/accounts/{self.id}/history/note'
-            params = {'sharedFolderId': self.shared_folder.id} if self.shared_folder else {}
-            response = self._lastpass.session.get(url, params=params)
-            if not response.ok:
-                response.raise_for_status()
-            self._history = [SecretHistory(*data.values()) for data in response.json().get('history', [])]
-        return self._history
+    def id(self):
+        return self._data.get('id')
 
-    def get_latest_update_person(self):
+    @property
+    def name(self):
+        return self._data.get('name')
+
+    @property
+    def username(self):
+        return self._data.get('username')
+
+    @property
+    def password(self):
+        return self._data.get('password')
+
+    @property
+    def url(self):
+        return self._data.get('url')
+
+    @property
+    def notes(self):
+        return self._data.get('notes')
+
+    @property
+    def shared_folder(self):
+        return self._shared_folder
+
+    @property
+    def last_touch_datetime(self):
+        return datetime.fromtimestamp(int(self._data.get('last_touch_timestamp')))
+
+    @property
+    def last_modified_datetime(self):
+        return datetime.fromtimestamp(int(self._data.get('last_modified_gmt')))
+
+    @property
+    def last_password_change_datetime(self):
+        return datetime.fromtimestamp(int(self._data.get('last_password_change_gmt')))
+
+    @property
+    def created_datetime(self):
+        return datetime.fromtimestamp(int(self._data.get('created_gmt')))
+
+    @property
+    def note_history(self):
+        if self._note_history is None:
+            self._note_history = self._get_history_by_attribute('note')
+        return self._note_history
+
+    @property
+    def username_history(self):
+        if self._username_history is None:
+            self._username_history = self._get_history_by_attribute('username')
+        return self._get_history_by_attribute('username')
+
+    @property
+    def password_history(self):
+        if self._password_history is None:
+            self._password_history = self._get_history_by_attribute('password')
+        return self._get_history_by_attribute('password')
+
+    def _get_history_by_attribute(self, attribute):
+        url = f'{self._lastpass.host}/lmiapi/accounts/{self.id}/history/{attribute}'
+        params = {'sharedFolderId': self.shared_folder.id} if self.shared_folder else {}
+        response = self._lastpass.session.get(url, params=params)
+        if not response.ok:
+            response.raise_for_status()
+        return [History(*data.values()) for data in response.json().get('history', [])]
+
+    def get_latest_password_update_person(self):
         try:
-            return self.history[-1].person
+            return self.password_history[-1].person
         except IndexError:
             return None
