@@ -1,10 +1,13 @@
 import codecs
+import re
 import struct
 from base64 import b64decode
 from io import BytesIO
 
 import binascii
 from Crypto.Cipher import AES
+from Crypto.PublicKey import RSA
+from Crypto.Util import number
 
 from .datamodels import Chunk
 from .lastpassexceptions import ServerError
@@ -98,7 +101,21 @@ class Decoder:
             raise TypeError()
 
     @staticmethod
-    def decode_aes256_auto(data, encryption_key, base64=False):
+    def decrypt_rsa_key(chunk, encryption_key):
+        """Parse PRIK chunk which contains private RSA key"""
+        decrypted = Decoder.decrypt_aes256_cbc(encryption_key[:16],
+                                               Decoder.decode_hex(chunk.payload),
+                                               encryption_key)
+        regex_match = br'^LastPassPrivateKey<(?P<hex_key>.*)>LastPassPrivateKey$'
+        hex_key = re.match(regex_match, decrypted).group('hex_key')
+        rsa_key = RSA.importKey(Decoder.decode_hex(hex_key))
+        rsa_key.dmp1 = rsa_key.d % (rsa_key.p - 1)
+        rsa_key.dmq1 = rsa_key.d % (rsa_key.q - 1)
+        rsa_key.iqmp = number.inverse(rsa_key.q, rsa_key.p)
+        return rsa_key
+
+    @staticmethod
+    def decrypt_aes256_auto(data, encryption_key, base64=False):
         """Guesses AES cipher (ECB or CBD) from the length of the plain data."""
         if not isinstance(data, bytes):
             raise TypeError('Data should be bytes.')
@@ -113,16 +130,17 @@ class Decoder:
         if all(conditions):
             # in cbc plain iv is data[1:17] and data is data[17:]
             # but in base64 iv is b64decode(data[1:25]) and data is b64decode(data[26:])
+            # b64encoded cbc first character is ! {1-24}=iv then there is a | {rest data}
             cipher = 'cbc'
             arguments = [data[1:17], data[17:]] if not base64 else [b64decode(data[1:25]), b64decode(data[26:])]
         else:
             cipher = 'ecb'
             arguments = [data] if not base64 else [b64decode(data)]
         arguments.append(encryption_key)
-        return getattr(Decoder, f'decode_aes256_{cipher}')(*arguments)
+        return getattr(Decoder, f'decrypt_aes256_{cipher}')(*arguments)
 
     @staticmethod
-    def decode_aes256_cbc(iv, data, encryption_key):
+    def decrypt_aes256_cbc(iv, data, encryption_key):
         """
         Decrypt AES-256 bytes with CBC.
         """
@@ -130,7 +148,7 @@ class Decoder:
         return Decoder._unpad_decrypted_data(decrypted_data)
 
     @staticmethod
-    def decode_aes256_ecb(data, encryption_key):
+    def decrypt_aes256_ecb(data, encryption_key):
         """
         Decrypt AES-256 bytes with CBC.
         """

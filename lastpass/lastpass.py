@@ -73,6 +73,9 @@ class Lastpass:
             raise ApiLimitReached
         return response
 
+    def token(self):
+        return self._authenticated_response_data.get('token')
+
     @property
     def iteration_count(self):
         if self._iteration_count is None:
@@ -134,7 +137,7 @@ class Lastpass:
             url = f'{self.host}/getSharedFolderInfo.php'
             data = {'lpversion': '4.0',
                     'method': 'web',
-                    'token': self._authenticated_response_data.get('token')}
+                    'token': self.token}
             response = self.session.post(url, data=data)
             if not response.ok:
                 response.raise_for_status()
@@ -170,7 +173,7 @@ class Lastpass:
                   'startdate': start_date,
                   'enddate': end_date,
                   'type': event_type,
-                  'token': self._authenticated_response_data.get('token')}
+                  'token': self.token}
         url = f'{self.host}/history.php'
         response = self.session.post(url, params=params, data=form_data)
         if not response.ok:

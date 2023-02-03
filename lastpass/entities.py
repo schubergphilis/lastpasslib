@@ -1,10 +1,7 @@
 import logging
-import re
 from hashlib import sha256, pbkdf2_hmac
 
 from Crypto.Cipher import PKCS1_OAEP
-from Crypto.PublicKey import RSA
-from Crypto.Util import number
 from binascii import hexlify
 
 from .configuration import ALLOWED_SECURE_NOTE_TYPES
@@ -77,7 +74,7 @@ class Vault:
             if chunk.id == b'ACCT':
                 secrets.append(self._parse_secret(chunk, key, self._lastpass, shared_folder))
             elif chunk.id == b'PRIK':
-                rsa_private_key = self._decrypt_rsa_key(chunk, self.key)
+                rsa_private_key = Decoder.decrypt_rsa_key(chunk, self.key)
             elif chunk.id == b'SHAR':
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
@@ -93,13 +90,13 @@ class Vault:
         """
         stream = Stream(chunk.payload)
         id_ = stream.next_item()
-        name = Decoder.decode_aes256_auto(stream.next_item(), encryption_key)
-        group = Decoder.decode_aes256_auto(stream.next_item(), encryption_key)
+        name = Decoder.decrypt_aes256_auto(stream.next_item(), encryption_key)
+        group = Decoder.decrypt_aes256_auto(stream.next_item(), encryption_key)
         url = Decoder.decode_hex(stream.next_item())
-        notes = Decoder.decode_aes256_auto(stream.next_item(), encryption_key)
+        notes = Decoder.decrypt_aes256_auto(stream.next_item(), encryption_key)
         stream.skip_item(2)
-        username = Decoder.decode_aes256_auto(stream.next_item(), encryption_key)
-        password = Decoder.decode_aes256_auto(stream.next_item(), encryption_key)
+        username = Decoder.decrypt_aes256_auto(stream.next_item(), encryption_key)
+        password = Decoder.decrypt_aes256_auto(stream.next_item(), encryption_key)
         stream.skip_item(2)
         secure_note = stream.next_item()
         if secure_note == b'1':
@@ -128,20 +125,6 @@ class Vault:
         return info
 
     @staticmethod
-    def _decrypt_rsa_key(chunk, encryption_key):
-        """Parse PRIK chunk which contains private RSA key"""
-        decrypted = Decoder.decode_aes256_cbc(encryption_key[:16],
-                                              Decoder.decode_hex(chunk.payload),
-                                              encryption_key)
-        regex_match = br'^LastPassPrivateKey<(?P<hex_key>.*)>LastPassPrivateKey$'
-        hex_key = re.match(regex_match, decrypted).group('hex_key')
-        rsa_key = RSA.importKey(Decoder.decode_hex(hex_key))
-        rsa_key.dmp1 = rsa_key.d % (rsa_key.p - 1)
-        rsa_key.dmq1 = rsa_key.d % (rsa_key.q - 1)
-        rsa_key.iqmp = number.inverse(rsa_key.q, rsa_key.p)
-        return rsa_key
-
-    @staticmethod
     def _parse_shared_folder(chunk, encryption_key, rsa_key):
         stream = Stream(chunk.payload)
         id_ = stream.next_item()
@@ -151,20 +134,20 @@ class Vault:
         key = stream.next_item()
         # Shared folder encryption key might come already in pre-decrypted form,
         # where it's only AES encrypted with the regular encryption key.
-        # When the key is blank, then there's a RSA encrypted key, which has to
+        # When the key is blank, then there's an RSA encrypted key, which has to
         # be decrypted first before use.
         if not key:
-            key = Decoder.decode_hex(PKCS1_OAEP.new(rsa_key).decrypt(encrypted_key))
+            hex_key = PKCS1_OAEP.new(rsa_key).decrypt(encrypted_key)
         else:
-            key = Decoder.decode_hex(Decoder.decode_aes256_auto(key, encryption_key))
-        name = Decoder.decode_aes256_auto(encrypted_name, key, base64=True)
+            hex_key = Decoder.decrypt_aes256_auto(key, encryption_key)
+        key = Decoder.decode_hex(hex_key)
+        name = Decoder.decrypt_aes256_auto(encrypted_name, key, base64=True)
         return id_, name, key
 
     def refresh(self):
         self._logger.info('Cleaning up secrets and blob.')
-        self._secrets = None
-        self._blob_ = None
-        self._logger.info('Re retrieving secrets.')
+        self._secrets = self._blob_ = None
+        self._logger.info('Retrieving remote blob and decrypting secrets.')
         _ = self.secrets
 
 
