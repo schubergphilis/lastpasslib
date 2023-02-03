@@ -1,4 +1,5 @@
 import logging
+from copy import copy
 from datetime import datetime
 from hashlib import sha256, pbkdf2_hmac
 
@@ -239,7 +240,18 @@ class Secret(object):
         response = self._lastpass.session.get(url, params=params)
         if not response.ok:
             response.raise_for_status()
-        return [History(*data.values()) for data in response.json().get('history', [])]
+        decrypted_entries = []
+        for entry in response.json().get('history', []):
+            new = copy(entry)
+            value = Decoder.decrypt_aes256_auto(entry.get('value').encode('utf-8'),
+                                                self._lastpass.vault.key,
+                                                base64=True)
+            try:
+                new['value'] = value.decode('utf-8')
+            except UnicodeDecodeError:
+                new['value'] = value
+            decrypted_entries.append(new)
+        return [History(*data.values()) for data in decrypted_entries]
 
     def get_latest_password_update_person(self):
         try:

@@ -44,7 +44,7 @@ class History:
         return parse(self.date)
 
     def __repr__(self):
-        attributes = ['date', 'person']
+        attributes = ['date', 'person', 'value']
         values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
         return f'{values}\n\n'
 
