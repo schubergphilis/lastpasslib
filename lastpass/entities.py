@@ -101,10 +101,11 @@ class Vault:
                       'basic_auth', 'method', 'action', 'group_id', 'deleted', 'attach_key_encrypted',
                       'attachment_present', 'individual_share', 'note_type', 'no_alert', 'last_modified_gmt',
                       'has_been_shared', 'last_password_change_gmt', 'created_gmt', 'vulnerable']
-        attributes.extend([f'undocumented_attribute_{index}' for index in range(1, 4)])
+        attributes.extend([f'undocumented_attribute_{index}' for index in range(1, 3)])
+        attributes.append('custom_note_definition_json')
         attributes.append('mfa_seed')
-        attributes.extend([f'undocumented_attribute_{index}' for index in range(4, 7)])
-        encrypted = ['name', 'group', 'notes', 'username', 'password', 'mfa_seed', 'undocumented_attribute_4']
+        attributes.extend([f'undocumented_attribute_{index}' for index in range(3, 6)])
+        encrypted = ['name', 'group', 'notes', 'username', 'password', 'mfa_seed', 'undocumented_attribute_3']
         data = {attribute: stream.next_item() for attribute in attributes}
         decrypted_data = {attribute: Decoder.decrypt_aes256_auto(data.get(attribute), encryption_key)
                           for attribute in encrypted}
@@ -249,7 +250,7 @@ class Secret(object):
             try:
                 new['value'] = value.decode('utf-8')
             except UnicodeDecodeError:
-                new['value'] = value
+                new['value'] = str(value)
             decrypted_entries.append(new)
         return [History(*data.values()) for data in decrypted_entries]
 

@@ -19,7 +19,7 @@ class LastpassMock:
 #
 # from lastpass.lastpass import Lastpass
 # lastpass = Lastpass(USERNAME, PASSWORD, MFA)
-# with open('vault.blob') as ofile:
+# with open('vault.blob', 'w') as ofile:
 #     ofile.write(lastpass.vault._blob.decode('utf-8'))
 
 # and can be loaded to test the decryption code in isolation like:
