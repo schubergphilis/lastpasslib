@@ -91,7 +91,7 @@ class Blob:
         return self._chunks
 
 
-class Decoder:
+class EncryptManager:
 
     @staticmethod
     def decode_hex(data):
@@ -104,12 +104,12 @@ class Decoder:
     @staticmethod
     def decrypt_rsa_key(payload, encryption_key):
         """Parse PRIK chunk which contains private RSA key"""
-        decrypted = Decoder.decrypt_aes256_cbc(encryption_key[:16],
-                                               Decoder.decode_hex(payload),
-                                               encryption_key)
+        decrypted = EncryptManager.decrypt_aes256_cbc(encryption_key[:16],
+                                                      EncryptManager.decode_hex(payload),
+                                                      encryption_key)
         regex_match = br'^LastPassPrivateKey<(?P<hex_key>.*)>LastPassPrivateKey$'
         hex_key = re.match(regex_match, decrypted).group('hex_key')
-        rsa_key = RSA.importKey(Decoder.decode_hex(hex_key))
+        rsa_key = RSA.importKey(EncryptManager.decode_hex(hex_key))
         rsa_key.dmp1 = rsa_key.d % (rsa_key.p - 1)
         rsa_key.dmq1 = rsa_key.d % (rsa_key.q - 1)
         rsa_key.iqmp = number.inverse(rsa_key.q, rsa_key.p)
@@ -146,7 +146,7 @@ class Decoder:
             cipher = 'ecb'
             arguments = [data] if not base64 else [b64decode(data)]
         arguments.append(encryption_key)
-        return getattr(Decoder, f'decrypt_aes256_{cipher}')(*arguments)
+        return getattr(EncryptManager, f'decrypt_aes256_{cipher}')(*arguments)
 
     @staticmethod
     def decrypt_aes256_cbc(iv, data, encryption_key):
@@ -154,7 +154,7 @@ class Decoder:
         Decrypt AES-256 bytes with CBC.
         """
         decrypted_data = AES.new(encryption_key, AES.MODE_CBC, iv).decrypt(data)
-        return Decoder._unpad_decrypted_data(decrypted_data)
+        return EncryptManager._unpad_decrypted_data(decrypted_data)
 
     @staticmethod
     def decrypt_aes256_ecb(data, encryption_key):
@@ -162,7 +162,7 @@ class Decoder:
         Decrypt AES-256 bytes with CBC.
         """
         decrypted_data = AES.new(encryption_key, AES.MODE_ECB).decrypt(data)
-        return Decoder._unpad_decrypted_data(decrypted_data)
+        return EncryptManager._unpad_decrypted_data(decrypted_data)
 
     @staticmethod
     def _unpad_decrypted_data(decrypted_data):
