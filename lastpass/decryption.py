@@ -102,10 +102,10 @@ class Decoder:
             raise TypeError()
 
     @staticmethod
-    def decrypt_rsa_key(chunk, encryption_key):
+    def decrypt_rsa_key(payload, encryption_key):
         """Parse PRIK chunk which contains private RSA key"""
         decrypted = Decoder.decrypt_aes256_cbc(encryption_key[:16],
-                                               Decoder.decode_hex(chunk.payload),
+                                               Decoder.decode_hex(payload),
                                                encryption_key)
         regex_match = br'^LastPassPrivateKey<(?P<hex_key>.*)>LastPassPrivateKey$'
         hex_key = re.match(regex_match, decrypted).group('hex_key')
@@ -123,6 +123,14 @@ class Decoder:
         length = len(data)
         if not length:
             return b''
+        # trying to identify automatically whether provided data are base64 encode.
+        # had one collision with plain data having | as 26 character so that is not robust enough...
+        # base64_check = data[0], data[25] == (b'!'[0], b'|'[0])
+        # print(base64_check)
+        # if base64:
+        #     print(data, base64_check)
+        # if base64_check:
+        #     print(data)
         # if base64 we only check for the first byte
         conditions = [data[0] == b'!'[0]]
         if not base64:

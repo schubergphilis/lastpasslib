@@ -78,41 +78,48 @@ class Vault:
         shared_folder = None
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
-                data = self._parse_secret(chunk, key)
+                data = self._parse_secret(chunk.payload, key)
                 secrets.append(Secret(self._lastpass, data, shared_folder))
             elif chunk.id == b'PRIK':
-                rsa_private_key = Decoder.decrypt_rsa_key(chunk, self.key)
+                rsa_private_key = Decoder.decrypt_rsa_key(chunk.payload, self.key)
             elif chunk.id == b'SHAR':
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
-                folder_id, folder_name, key = self._parse_shared_folder(chunk, self.key, rsa_private_key)
+                folder_id, folder_name, key = self._parse_shared_folder(chunk.payload, self.key, rsa_private_key)
                 shared_folder = self._lastpass.get_shared_folder_by_id(folder_id.decode('utf-8'))
                 shared_folder.shared_name = folder_name.decode('utf-8')
         return secrets
 
     @staticmethod
-    def _parse_secret(chunk, encryption_key):
+    def _parse_secret(payload, encryption_key):
         """Parses an account chunk, decrypts and creates an Account object.
         All secure notes are ACCTs but not all of them store account information.
         """
-        stream = Stream(chunk.payload)
+        stream = Stream(payload)
         attributes = ['id', 'name', 'group', 'url', 'notes', 'favorite', 'shared_from_id', 'username', 'password',
-                      'password_protected', 'generate_password', 'is_secure_note', 'last_touch_timestamp', 'auto_login',
-                      'never_autofill', 'realm_data', 'fi_id', 'custom_js', 'submit_id', 'captcha_id', 'ur_id',
-                      'basic_auth', 'method', 'action', 'group_id', 'deleted', 'attach_key_encrypted',
-                      'attachment_present', 'individual_share', 'note_type', 'no_alert', 'last_modified_gmt',
-                      'has_been_shared', 'last_password_change_gmt', 'created_gmt', 'vulnerable']
-        attributes.extend([f'undocumented_attribute_{index}' for index in range(1, 3)])
-        attributes.append('custom_note_definition_json')
-        attributes.append('mfa_seed')
-        attributes.extend([f'undocumented_attribute_{index}' for index in range(3, 6)])
-        encrypted = ['name', 'group', 'notes', 'username', 'password', 'mfa_seed', 'undocumented_attribute_3']
+                      'password_protected', 'generated_password', 'is_secure_note', 'last_touch_timestamp',
+                      'auto_login', 'never_autofill', 'realm_data', 'fi_id', 'custom_js', 'submit_id', 'captcha_id',
+                      'ur_id', 'basic_auth', 'method', 'action', 'group_id', 'deleted', 'attachment_encryption_key',
+                      'has_attachment', 'is_individual_share', 'note_type', 'no_alert', 'last_modified_gmt',
+                      'has_been_shared', 'last_password_change_gmt', 'created_gmt', 'vulnerable',
+                      'auto_change_password_supported', 'breached', 'custom_note_definition_json', 'mfa_seed']
+        attributes.extend([f'undocumented_attribute_{index}' for index in range(1, 4)])
+        boolean_values = ['favorite', 'password_protected', 'generated_password', 'is_secure_note', 'auto_login',
+                          'never_autofill', 'basic_auth', 'deleted', 'has_attachment', 'is_individual_share',
+                          'no_alert', 'has_been_shared', 'vulnerable', 'auto_change_password_supported', 'breached',
+                          'undocumented_attribute_2', 'undocumented_attribute_3']
+        plain_encrypted = ['name', 'group', 'notes', 'username', 'password', 'mfa_seed', 'undocumented_attribute_1']
         data = {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
         decrypted_data = {attribute: Decoder.decrypt_aes256_auto(data.get(attribute), encryption_key)
-                          for attribute in encrypted}
+                          for attribute in plain_encrypted}
         data.update(decrypted_data)
+        data['attachment_encryption_key'] = Decoder.decrypt_aes256_auto(data.get('attachment_encryption_key'),
+                                                                        encryption_key,
+                                                                        base64=True)
         data['url'] = Decoder.decode_hex(data.get('url'))
         decoded_data = {key: value.decode('utf-8') for key, value in data.items()}
+        boolean_data = {attribute: bool(decoded_data.get(attribute)) for attribute in boolean_values}
+        decoded_data.update(boolean_data)
         if decoded_data.get('is_secure_note') == '1':
             parsed_notes = Vault._parse_secure_note(decoded_data.get('notes'))
             if parsed_notes.get('type') in ALLOWED_SECURE_NOTE_TYPES:
@@ -139,15 +146,13 @@ class Vault:
         return info
 
     @staticmethod
-    def _parse_shared_folder(chunk, encryption_key, rsa_key):
-        stream = Stream(chunk.payload)
+    def _parse_shared_folder(payload, encryption_key, rsa_key):
+        stream = Stream(payload)
         id_ = stream.get_payload_by_size(stream.read_byte_size(4))
         encrypted_key = Decoder.decode_hex(stream.get_payload_by_size(stream.read_byte_size(4)))
         encrypted_name = stream.get_payload_by_size(stream.read_byte_size(4))
         unknown_flag_1 = stream.get_payload_by_size(stream.read_byte_size(4))
         unknown_flag_2 = stream.get_payload_by_size(stream.read_byte_size(4))
-        print(unknown_flag_1)
-        print(unknown_flag_2)
         key = stream.get_payload_by_size(stream.read_byte_size(4))
         # Shared folder encryption key might come already in pre-decrypted form,
         # where it's only AES encrypted with the regular encryption key.
