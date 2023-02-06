@@ -2,6 +2,7 @@ import logging
 from copy import copy
 from datetime import datetime
 from hashlib import sha256, pbkdf2_hmac
+from pathlib import Path
 
 from Crypto.Cipher import PKCS1_OAEP
 from binascii import hexlify
@@ -162,6 +163,10 @@ class Vault:
         self._secrets = self._blob_ = None
         self._logger.info('Retrieving remote blob and decrypting secrets.')
         _ = self.secrets
+
+    def save(self, path='.', name='vault.blob'):
+        with open(Path(path, name), 'w') as ofile:
+            ofile.write(self._blob.decode('utf-8'))
 
 
 class Secret(object):
