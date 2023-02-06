@@ -107,7 +107,7 @@ class Vault:
         attributes.append('mfa_seed')
         attributes.extend([f'undocumented_attribute_{index}' for index in range(3, 6)])
         encrypted = ['name', 'group', 'notes', 'username', 'password', 'mfa_seed', 'undocumented_attribute_3']
-        data = {attribute: stream.next_item() for attribute in attributes}
+        data = {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
         decrypted_data = {attribute: Decoder.decrypt_aes256_auto(data.get(attribute), encryption_key)
                           for attribute in encrypted}
         data.update(decrypted_data)
@@ -141,11 +141,14 @@ class Vault:
     @staticmethod
     def _parse_shared_folder(chunk, encryption_key, rsa_key):
         stream = Stream(chunk.payload)
-        id_ = stream.next_item()
-        encrypted_key = Decoder.decode_hex(stream.next_item())
-        encrypted_name = stream.next_item()
-        stream.skip_item(2)
-        key = stream.next_item()
+        id_ = stream.get_payload_by_size(stream.read_byte_size(4))
+        encrypted_key = Decoder.decode_hex(stream.get_payload_by_size(stream.read_byte_size(4)))
+        encrypted_name = stream.get_payload_by_size(stream.read_byte_size(4))
+        unknown_flag_1 = stream.get_payload_by_size(stream.read_byte_size(4))
+        unknown_flag_2 = stream.get_payload_by_size(stream.read_byte_size(4))
+        print(unknown_flag_1)
+        print(unknown_flag_2)
+        key = stream.get_payload_by_size(stream.read_byte_size(4))
         # Shared folder encryption key might come already in pre-decrypted form,
         # where it's only AES encrypted with the regular encryption key.
         # When the key is blank, then there's an RSA encrypted key, which has to

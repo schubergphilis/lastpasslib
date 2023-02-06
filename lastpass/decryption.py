@@ -33,11 +33,11 @@ class Stream:
     def position(self):
         return self._stream.tell()
 
-    def next_by_size(self, size):
+    def read_byte_size(self, size):
         """Reads the next size provided bytes from a stream and returns it as a string of bytes."""
         return self._stream.read(size)
 
-    def next_item(self):
+    def get_payload_by_size(self, payload_size):
         """Reads an item from a stream and returns it as a string of bytes."""
         # An item in an itemized chunk is made up of the
         # big endian size and the payload of that size.
@@ -46,12 +46,12 @@ class Stream:
         #   0000: 4
         #   0004: 0xDE 0xAD 0xBE 0xEF
         #   0008: --- Next item ---
-        return self._stream.read(struct.unpack('>I', self._stream.read(4))[0])
+        return self._stream.read(struct.unpack('>I', payload_size)[0])
 
     def skip_item(self, times=1):
         """Skips an item in a stream."""
         for _ in range(times):
-            self.next_item()
+            self.get_payload_by_size(self.read_byte_size(4))
 
 
 class Blob:
@@ -81,9 +81,10 @@ class Blob:
             chunks = []
             stream = Stream(self._data)
             while stream.position < stream.length:
-                chunk_id = stream.next_by_size(4)
-                payload = stream.next_item()
-                chunks.append(Chunk(chunk_id, payload))
+                chunk_id = stream.read_byte_size(4)
+                payload_size = stream.read_byte_size(4)
+                payload = stream.get_payload_by_size(payload_size)
+                chunks.append(Chunk(chunk_id, payload_size, payload))
             if not Blob.is_complete(chunks):
                 raise ServerError('Blob is truncated')
             self._chunks = chunks

@@ -52,7 +52,7 @@ class History:
 @dataclass
 class Chunk:
     id: bytes
-    # payload_length: bytes
+    payload_size: bytes
     payload: bytes
 
 
