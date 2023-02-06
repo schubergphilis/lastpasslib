@@ -25,7 +25,7 @@ class LastpassMock:
 # and can be loaded to test the decryption code in isolation like:
 
 # from lastpass.utils import LastpassMock
-# from lastpass.entities import Vault
+# from lastpass.vault import Vault
 #
 # lastpass = LastpassMock(CORRECT_USERNAME)
 # vault = Vault(lastpass, CORRECT_PASSWORD)

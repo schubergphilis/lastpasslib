@@ -1,6 +1,4 @@
 import logging
-from copy import copy
-from datetime import datetime
 from hashlib import sha256, pbkdf2_hmac
 from pathlib import Path
 
@@ -8,10 +6,10 @@ from Crypto.Cipher import PKCS1_OAEP
 from binascii import hexlify
 
 from .configuration import ALLOWED_SECURE_NOTE_TYPES
-from .datamodels import History
 from .decryption import Blob, Decoder, Stream
+from .secrets import Secret
 
-LOGGER_BASENAME = 'entities'
+LOGGER_BASENAME = 'vault'
 LOGGER = logging.getLogger(LOGGER_BASENAME)
 LOGGER.addHandler(logging.NullHandler())
 
@@ -105,9 +103,8 @@ class Vault:
                       'auto_change_password_supported', 'breached', 'custom_note_definition_json', 'mfa_seed']
         attributes.extend([f'undocumented_attribute_{index}' for index in range(1, 4)])
         boolean_values = ['favorite', 'password_protected', 'generated_password', 'is_secure_note', 'auto_login',
-                          'never_autofill', 'basic_auth', 'deleted', 'has_attachment', 'is_individual_share',
-                          'no_alert', 'has_been_shared', 'vulnerable', 'auto_change_password_supported', 'breached',
-                          'undocumented_attribute_2', 'undocumented_attribute_3']
+                          'never_autofill', 'basic_auth', 'deleted', 'is_individual_share',
+                          'has_been_shared', 'auto_change_password_supported', 'breached']
         plain_encrypted = ['name', 'group', 'notes', 'username', 'password', 'mfa_seed', 'undocumented_attribute_1']
         data = {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
         decrypted_data = {attribute: Decoder.decrypt_aes256_auto(data.get(attribute), encryption_key)
@@ -118,9 +115,9 @@ class Vault:
                                                                         base64=True)
         data['url'] = Decoder.decode_hex(data.get('url'))
         decoded_data = {key: value.decode('utf-8') for key, value in data.items()}
-        boolean_data = {attribute: bool(decoded_data.get(attribute)) for attribute in boolean_values}
+        boolean_data = {attribute: bool(int(decoded_data.get(attribute))) for attribute in boolean_values}
         decoded_data.update(boolean_data)
-        if decoded_data.get('is_secure_note') == '1':
+        if decoded_data.get('is_secure_note'):
             parsed_notes = Vault._parse_secure_note(decoded_data.get('notes'))
             if parsed_notes.get('type') in ALLOWED_SECURE_NOTE_TYPES:
                 decoded_data['url'] = parsed_notes.get('url', decoded_data.get('url'))
@@ -153,6 +150,7 @@ class Vault:
         encrypted_name = stream.get_payload_by_size(stream.read_byte_size(4))
         unknown_flag_1 = stream.get_payload_by_size(stream.read_byte_size(4))
         unknown_flag_2 = stream.get_payload_by_size(stream.read_byte_size(4))
+        _, _ = unknown_flag_1, unknown_flag_2
         key = stream.get_payload_by_size(stream.read_byte_size(4))
         # Shared folder encryption key might come already in pre-decrypted form,
         # where it's only AES encrypted with the regular encryption key.
@@ -175,100 +173,3 @@ class Vault:
     def save(self, path='.', name='vault.blob'):
         with open(Path(path, name), 'w') as ofile:
             ofile.write(self._blob.decode('utf-8'))
-
-
-class Secret(object):
-    def __init__(self, lastpass_instance, data, shared_folder=None):
-        self._lastpass = lastpass_instance
-        self._data = data
-        self._shared_folder = shared_folder
-        self._note_history = None
-        self._username_history = None
-        self._password_history = None
-
-    @property
-    def id(self):
-        return self._data.get('id')
-
-    @property
-    def name(self):
-        return self._data.get('name')
-
-    @property
-    def username(self):
-        return self._data.get('username')
-
-    @property
-    def password(self):
-        return self._data.get('password')
-
-    @property
-    def url(self):
-        return self._data.get('url')
-
-    @property
-    def notes(self):
-        return self._data.get('notes')
-
-    @property
-    def shared_folder(self):
-        return self._shared_folder
-
-    @property
-    def last_touch_datetime(self):
-        return datetime.fromtimestamp(int(self._data.get('last_touch_timestamp')))
-
-    @property
-    def last_modified_datetime(self):
-        return datetime.fromtimestamp(int(self._data.get('last_modified_gmt')))
-
-    @property
-    def last_password_change_datetime(self):
-        return datetime.fromtimestamp(int(self._data.get('last_password_change_gmt')))
-
-    @property
-    def created_datetime(self):
-        return datetime.fromtimestamp(int(self._data.get('created_gmt')))
-
-    @property
-    def note_history(self):
-        if self._note_history is None:
-            self._note_history = self._get_history_by_attribute('note')
-        return self._note_history
-
-    @property
-    def username_history(self):
-        if self._username_history is None:
-            self._username_history = self._get_history_by_attribute('username')
-        return self._username_history
-
-    @property
-    def password_history(self):
-        if self._password_history is None:
-            self._password_history = self._get_history_by_attribute('password')
-        return self._password_history
-
-    def _get_history_by_attribute(self, attribute):
-        url = f'{self._lastpass.host}/lmiapi/accounts/{self.id}/history/{attribute}'
-        params = {'sharedFolderId': self.shared_folder.id} if self.shared_folder else {}
-        response = self._lastpass.session.get(url, params=params)
-        if not response.ok:
-            response.raise_for_status()
-        decrypted_entries = []
-        for entry in response.json().get('history', []):
-            new = copy(entry)
-            value = Decoder.decrypt_aes256_auto(entry.get('value').encode('utf-8'),
-                                                self._lastpass.vault.key,
-                                                base64=True)
-            try:
-                new['value'] = value.decode('utf-8')
-            except UnicodeDecodeError:
-                new['value'] = str(value)
-            decrypted_entries.append(new)
-        return [History(*data.values()) for data in decrypted_entries]
-
-    def get_latest_password_update_person(self):
-        try:
-            return self.password_history[-1].person
-        except IndexError:
-            return None

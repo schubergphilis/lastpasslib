@@ -9,7 +9,7 @@ from dateutil.parser import parse
 from requests import Session
 
 from .datamodels import Event, SharedFolder
-from .entities import Vault
+from .vault import Vault
 from .lastpassexceptions import (ApiLimitReached,
                                  InvalidMfa,
                                  InvalidPassword,

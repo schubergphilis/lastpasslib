@@ -27,7 +27,7 @@ class Event:
     def name_alternative(self):
         return ''.join([self._name1, self._name2, self._name3, self._name4, self._name5])
 
-    def __repr__(self):
+    def __str__(self):
         attributes = ['name', 'name_alternative', 'group', 'date', 'ip', 'reverse', 'action']
         values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
         return f'{values}\n\n'
@@ -43,7 +43,7 @@ class History:
     def datetime(self):
         return parse(self.date)
 
-    def __repr__(self):
+    def __str__(self):
         attributes = ['date', 'person', 'value']
         values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
         return f'{values}\n\n'
@@ -80,7 +80,7 @@ class SharedFolder:
     def last_modified_datetime(self):
         return parse(self.last_modified)
 
-    def __repr__(self):
+    def __str__(self):
         attributes = ['id', 'name', 'read_only', 'deleted', 'created', 'last_modified', 'sharer']
         values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
         return f'{values}\n\n'
