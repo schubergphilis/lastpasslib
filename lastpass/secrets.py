@@ -1,6 +1,8 @@
+import base64
 import logging
 from copy import copy
 from datetime import datetime
+from pathlib import Path
 
 from .datamodels import History
 from .encryption import EncryptManager
@@ -441,6 +443,8 @@ class Attachment:
         self._lastpass_instance = lastpass_instance
         self._data = data
         self._filename = None
+        self._decryption_key_ = None
+        self._content = None
 
     @property
     def id(self):
@@ -456,7 +460,9 @@ class Attachment:
 
     @property
     def _decryption_key(self):
-        return EncryptManager.decode_hex(self._data.get('decryption_key'))
+        if self._decryption_key_ is None:
+            self._decryption_key_ = EncryptManager.decode_hex(self._data.get('decryption_key'))
+        return self._decryption_key_
 
     @property
     def filename(self):
@@ -465,3 +471,19 @@ class Attachment:
                                                                 self._decryption_key,
                                                                 base64=True).decode('utf-8')
         return self._filename
+
+    @property
+    def content(self):
+        if self._content is None:
+            url = f'{self._lastpass_instance.host}/getattach.php'
+            data = {'getattach': self.uuid}
+            response = self._lastpass_instance.session.post(url, data=data)
+            if not response.ok:
+                response.raise_for_status()
+            base64_encoded = EncryptManager.decrypt_aes256_auto(response.content, self._decryption_key, base64=True)
+            self._content = base64.b64decode(base64_encoded).decode('utf-8')
+        return self._content
+
+    def save(self, path='.'):
+        with open(Path(path, self.filename), 'w') as ofile:
+            ofile.write(self.content)
