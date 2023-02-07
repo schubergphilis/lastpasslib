@@ -9,7 +9,7 @@ from binascii import hexlify
 
 from .datamodels import NeverUrl, EquivalentDomain, UrlRule
 from .encryption import Blob, EncryptManager, Stream
-from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment
+from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom
 
 LOGGER_BASENAME = 'vault'
 LOGGER = logging.getLogger(LOGGER_BASENAME)
@@ -250,6 +250,8 @@ class Vault:
             if entry:
                 note_data[entry] = value
         data.update(note_data)
+        if class_type == Custom:
+            data['custom_attribute_mapping'] = key_mapping
         return class_type, data
 
     @staticmethod

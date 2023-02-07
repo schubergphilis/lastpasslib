@@ -253,6 +253,9 @@ class CreditCard(SecureNote):
 class Custom(SecureNote):
     attribute_mapping = {}
 
+    @property
+    def attribute_mapping(self):
+        return self._data.get('custom_attribute_mapping', {})
 
 class Database(SecureNote):
     attribute_mapping = {'Language': 'language',
