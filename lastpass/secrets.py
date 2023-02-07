@@ -257,6 +257,7 @@ class Custom(SecureNote):
     def attribute_mapping(self):
         return self._data.get('custom_attribute_mapping', {})
 
+
 class Database(SecureNote):
     attribute_mapping = {'Language': 'language',
                          'Type': 'type',

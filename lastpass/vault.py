@@ -67,7 +67,7 @@ class Vault:
 
     @property
     def secrets(self):
-        if not self._secrets:
+        if self._secrets is None:
             self._secrets = self._decrypt_blob(self._blob)
         return self._secrets
 
@@ -88,7 +88,7 @@ class Vault:
     @property
     def equivalent_domains(self):
         if self._equivalent_domains is None:
-            # parse blob to get eqdns
+            # parse blob to get equivalent domains
             _ = self.secrets
         return self._equivalent_domains
 
