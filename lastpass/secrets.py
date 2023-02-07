@@ -21,7 +21,7 @@ class Secret:
 
     @property
     def secret_type(self):
-        return self.__class__.__name__.lower()
+        return self.__class__.__name__
 
     @property
     def attachment_encryption_key(self):
@@ -374,7 +374,7 @@ class Server(SecureNote):
     attribute_mapping = {'Language': 'language',
                          'Hostname': 'hostname',
                          'Username': 'username',
-                         'Password': 'passwordpassword',
+                         'Password': 'password',
                          'Notes': 'notes'}
 
 

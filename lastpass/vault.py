@@ -1,5 +1,6 @@
 import json
 import logging
+import re
 from hashlib import sha256, pbkdf2_hmac
 from pathlib import Path
 
@@ -209,15 +210,32 @@ class Vault:
         return class_type, data
 
     @staticmethod
+    def _try_to_identify_note_type_in_notes(notes):
+        note_type = notes.splitlines()[0].split(':', 1)[1]
+        if note_type not in SECRET_NOTE_CLASS_MAPPING.keys():
+            raise TypeError(f'Unknown note type :{note_type}')
+        return note_type
+
+    @staticmethod
     def _get_class_and_key_mapping(data):
         custom_note_type = SECRET_NOTE_CLASS_MAPPING.get('Custom')
-        class_type = SECRET_NOTE_CLASS_MAPPING.get(data.get('note_type'), custom_note_type)
+        note_type = data.get('note_type')
+        if not note_type:
+            note_type = Vault._try_to_identify_note_type_in_notes(data.get('notes'))
+            data['note_type'] = note_type
+        class_type = SECRET_NOTE_CLASS_MAPPING.get(note_type, custom_note_type)
         key_mapping = class_type.attribute_mapping
         if data.get('note_type').startswith('Custom'):
             # this needs work as the attributes are not part of the class.
-            definition = json.loads(data.get('custom_note_definition_json'))
-            key_mapping = {entry.get('type'): entry.get('text') for entry in definition.get('fields')}
+            data = json.loads(data.get('custom_note_definition_json'))
+            attributes = [entry.get('text') for entry in data.get('fields')]
+            key_mapping = {attribute: Vault._sanitize_to_attribute(attribute) for attribute in attributes}
         return class_type, key_mapping
+
+    @staticmethod
+    def _sanitize_to_attribute(value):
+        value = re.split('; |, |_ |- |\s|\* ', value)
+        return '_'.join([part.lower() for part in value])
 
     @staticmethod
     def _parse_secure_note(data):
