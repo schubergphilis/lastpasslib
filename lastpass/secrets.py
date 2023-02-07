@@ -171,7 +171,8 @@ class Password(Secret):
         for entry in response.json().get('history', []):
             new = copy(entry)
             value = EncryptManager.decrypt_aes256_auto(entry.get('value').encode('utf-8'),
-                                                       self._lastpass.vault.key)
+                                                       self._lastpass.vault.key,
+                                                       base64=True)
             try:
                 new['value'] = value.decode('utf-8')
             except UnicodeDecodeError:
