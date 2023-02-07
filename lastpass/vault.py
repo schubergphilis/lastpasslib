@@ -7,7 +7,7 @@ from Crypto.Cipher import PKCS1_OAEP
 from binascii import hexlify
 
 from .encryption import Blob, EncryptManager, Stream
-from .secrets import Password, SECRET_NOTE_CLASS_MAPPING
+from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment
 
 LOGGER_BASENAME = 'vault'
 LOGGER = logging.getLogger(LOGGER_BASENAME)
@@ -25,6 +25,7 @@ class Vault:
         self._hash = None
         self._blob_ = None
         self._secrets = None
+        self._attachments_ = None
 
     @property
     def key(self):
@@ -65,8 +66,18 @@ class Vault:
             self._secrets = self._decrypt_blob(self._blob)
         return self._secrets
 
+    @property
+    def _attachments(self):
+        if self._attachments_ is None:
+            # parse blob and get secrets and attachments
+            _ = self.secrets
+        return self._attachments_
+
     def get_secret_by_name(self, name):
         return next((secret for secret in self.secrets if secret.name == name), None)
+
+    def _get_attachments_by_owner_id(self, id_):
+        return [attachment for attachment in self._attachments if attachment.get('secret_owning_id') == id_]
 
     def _decrypt_blob(self, data):
         blob = Blob(data)
@@ -74,10 +85,18 @@ class Vault:
         key = self.key
         rsa_private_key = None
         shared_folder = None
+        attachment_chunks = [chunk for chunk in blob.chunks if chunk.id == b'ATTA']
+        self._attachments_ = [self._parse_attachment(chunk.payload) for chunk in attachment_chunks]
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
                 class_type, data = self._parse_secret(chunk.payload, key)
-                secrets.append(class_type(self._lastpass, data, shared_folder))
+                secret = class_type(self._lastpass, data, shared_folder)
+                if secret.has_attachment:
+                    for attachment_data in self._get_attachments_by_owner_id(secret.id):
+                        attachment_data['decryption_key'] = secret.attachment_encryption_key
+                        attachment = Attachment(self._lastpass, attachment_data)
+                        secret.add_attachment(attachment)
+                secrets.append(secret)
             elif chunk.id == b'PRIK':
                 rsa_private_key = EncryptManager.decrypt_rsa_key(chunk.payload, self.key)
             elif chunk.id == b'SHAR':
@@ -87,6 +106,15 @@ class Vault:
                 shared_folder = self._lastpass.get_shared_folder_by_id(folder_id.decode('utf-8'))
                 shared_folder.shared_name = folder_name.decode('utf-8')
         return secrets
+
+    @staticmethod
+    def _parse_attachment(payload):
+        stream = Stream(payload)
+        attributes = ['id', 'secret_owning_id', 'filetype', 'uuid', 'probably_size', 'encrypted_filename']
+        data = {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
+        decoded_data = {key: value.decode('utf-8') for key, value in data.items()}
+        return decoded_data
+
 
     @staticmethod
     def _parse_secret(payload, encryption_key):

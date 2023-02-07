@@ -15,6 +15,7 @@ class Secret:
         self._lastpass = lastpass_instance
         self._data = data
         self._shared_folder = shared_folder
+        self._attachments = []
 
     @property
     def secret_type(self):
@@ -87,6 +88,13 @@ class Secret:
     @property
     def shared_from_id(self):
         return self._data.get('shared_from_id')
+
+    @property
+    def attachments(self):
+        return self._attachments
+
+    def add_attachment(self, attachment):
+        self._attachments.append(attachment)
 
 
 class Password(Secret):
@@ -161,8 +169,7 @@ class Password(Secret):
         for entry in response.json().get('history', []):
             new = copy(entry)
             value = EncryptManager.decrypt_aes256_auto(entry.get('value').encode('utf-8'),
-                                                       self._lastpass.vault.key,
-                                                       base64=True)
+                                                       self._lastpass.vault.key)
             try:
                 new['value'] = value.decode('utf-8')
             except UnicodeDecodeError:
@@ -426,3 +433,35 @@ SECRET_NOTE_CLASS_MAPPING = {'Address': Address,
                              'Software License': SoftwareLicense,
                              'Wi-Fi Password': WifiPassword
                              }
+
+
+class Attachment:
+
+    def __init__(self, lastpass_instance, data):
+        self._lastpass_instance = lastpass_instance
+        self._data = data
+        self._filename = None
+
+    @property
+    def id(self):
+        return self._data.get('id')
+
+    @property
+    def filetype(self):
+        return self._data.get('filetype')
+
+    @property
+    def uuid(self):
+        return self._data.get('uuid')
+
+    @property
+    def _decryption_key(self):
+        return EncryptManager.decode_hex(self._data.get('decryption_key'))
+
+    @property
+    def filename(self):
+        if self._filename is None:
+            self._filename = EncryptManager.decrypt_aes256_auto(self._data.get('encrypted_filename').encode('utf-8'),
+                                                                self._decryption_key,
+                                                                base64=True).decode('utf-8')
+        return self._filename

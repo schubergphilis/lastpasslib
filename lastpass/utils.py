@@ -23,7 +23,7 @@ class LastpassMock:
 #     ofile.write(lastpass.vault._blob.decode('utf-8'))
 
 # and can be loaded to test the decryption code in isolation like:
-
+#
 # from lastpass.utils import LastpassMock
 # from lastpass.vault import Vault
 #
