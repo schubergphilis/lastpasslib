@@ -84,3 +84,23 @@ class SharedFolder:
         attributes = ['id', 'name', 'read_only', 'deleted', 'created', 'last_modified', 'sharer']
         values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
         return f'{values}\n\n'
+
+
+@dataclass
+class NeverUrl:
+    id: int
+    url: str
+
+
+@dataclass
+class EquivalentDomain:
+    id: int
+    url: str
+
+
+@dataclass
+class UrlRule:
+    url: str
+    exact_host: bool
+    exact_port: bool
+    case_insensitive: bool

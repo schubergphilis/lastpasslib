@@ -6,6 +6,7 @@ from pathlib import Path
 from Crypto.Cipher import PKCS1_OAEP
 from binascii import hexlify
 
+from .datamodels import NeverUrl, EquivalentDomain, UrlRule
 from .encryption import Blob, EncryptManager, Stream
 from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment
 
@@ -26,6 +27,9 @@ class Vault:
         self._blob_ = None
         self._secrets = None
         self._attachments_ = None
+        self._never_urls = None
+        self._equivalent_domains = None
+        self._url_rules = None
 
     @property
     def key(self):
@@ -73,11 +77,32 @@ class Vault:
             _ = self.secrets
         return self._attachments_
 
+    @property
+    def never_urls(self):
+        if self._never_urls is None:
+            # parse blob to get never urls
+            _ = self.secrets
+        return self._never_urls
+
+    @property
+    def equivalent_domains(self):
+        if self._equivalent_domains is None:
+            # parse blob to get eqdns
+            _ = self.secrets
+        return self._equivalent_domains
+
+    @property
+    def url_rules(self):
+        if self._url_rules is None:
+            # parse blob to get url rules
+            _ = self.secrets
+        return self._url_rules
+
     def get_secret_by_name(self, name):
         return next((secret for secret in self.secrets if secret.name == name), None)
 
-    def _get_attachments_by_owner_id(self, id_):
-        return [attachment for attachment in self._attachments if attachment.get('secret_owning_id') == id_]
+    def _get_attachments_by_parent_id(self, id_):
+        return [attachment for attachment in self._attachments if attachment.get('parent_id') == id_]
 
     def _decrypt_blob(self, data):
         blob = Blob(data)
@@ -87,12 +112,18 @@ class Vault:
         shared_folder = None
         attachment_chunks = [chunk for chunk in blob.chunks if chunk.id == b'ATTA']
         self._attachments_ = [self._parse_attachment(chunk.payload) for chunk in attachment_chunks]
+        never_urls_chunks = [chunk for chunk in blob.chunks if chunk.id == b'NEVR']
+        self._never_urls = [self._parse_never_urls(chunk.payload) for chunk in never_urls_chunks]
+        eqdn_chunks = [chunk for chunk in blob.chunks if chunk.id == b'EQDN']
+        self._equivalent_domains = [self._parse_eqdns(chunk.payload) for chunk in eqdn_chunks]
+        urul_chunks = [chunk for chunk in blob.chunks if chunk.id == b'URUL']
+        self._url_rules = [self._parse_url_rules(chunk.payload) for chunk in urul_chunks]
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
                 class_type, data = self._parse_secret(chunk.payload, key)
                 secret = class_type(self._lastpass, data, shared_folder)
                 if secret.has_attachment:
-                    for attachment_data in self._get_attachments_by_owner_id(secret.id):
+                    for attachment_data in self._get_attachments_by_parent_id(secret.id):
                         attachment_data['decryption_key'] = secret.attachment_encryption_key
                         attachment = Attachment(self._lastpass, attachment_data)
                         secret.add_attachment(attachment)
@@ -108,13 +139,41 @@ class Vault:
         return secrets
 
     @staticmethod
+    def _parse_url_rules(payload):
+        stream = Stream(payload)
+        attributes = ['url', 'exact_host', 'exact_port', 'case_insensitive']
+        data = {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
+        data['url'] = EncryptManager.decode_hex(data['url'])
+        decoded_data = {key: value.decode('utf-8') for key, value in data.items()}
+        bools = {attribute: bool(int(decoded_data.get(attribute))) for attribute in attributes[1:]}
+        decoded_data.update(bools)
+        return UrlRule(**decoded_data)
+
+    @staticmethod
+    def _parse_eqdns(payload):
+        stream = Stream(payload)
+        attributes = ['id', 'url']
+        data = {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
+        decoded_data = {key: value.decode('utf-8') for key, value in data.items()}
+        return EquivalentDomain(int(decoded_data.get('id')),
+                                EncryptManager.decode_hex(decoded_data.get('url')).decode('utf-8'))
+
+    @staticmethod
+    def _parse_never_urls(payload):
+        stream = Stream(payload)
+        attributes = ['id', 'url']
+        data = {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
+        decoded_data = {key: value.decode('utf-8') for key, value in data.items()}
+        return NeverUrl(int(decoded_data.get('id')),
+                        EncryptManager.decode_hex(decoded_data.get('url')).decode('utf-8'))
+
+    @staticmethod
     def _parse_attachment(payload):
         stream = Stream(payload)
-        attributes = ['id', 'secret_owning_id', 'filetype', 'uuid', 'probably_size', 'encrypted_filename']
+        attributes = ['id', 'parent_id', 'filetype', 'uuid', 'size', 'encrypted_filename']
         data = {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
         decoded_data = {key: value.decode('utf-8') for key, value in data.items()}
         return decoded_data
-
 
     @staticmethod
     def _parse_secret(payload, encryption_key):

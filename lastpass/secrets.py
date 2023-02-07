@@ -451,7 +451,7 @@ class Attachment:
         return self._data.get('id')
 
     @property
-    def filetype(self):
+    def mimetype(self):
         return self._data.get('filetype')
 
     @property

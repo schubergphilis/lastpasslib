@@ -190,3 +190,6 @@ class Lastpass:
         if not response.ok:
             response.raise_for_status()
         return response.ok
+
+    def __del__(self):
+        return self.logout()
