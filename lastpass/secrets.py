@@ -4,6 +4,7 @@ from copy import copy
 from datetime import datetime
 from pathlib import Path
 
+from .configuration import LASTPASS_VERSION
 from .datamodels import History, ShareAction
 from .encryption import EncryptManager
 
@@ -110,7 +111,7 @@ class Secret:
         if self._shared_to_people is None:
             url = f'{self._lastpass.host}/getSentShareInfo.php'
             data = {'aid': self.id,
-                    'lpversion': '4.108.1',
+                    'lpversion': LASTPASS_VERSION,
                     'method': 'cr',
                     'token': self._lastpass.token}
             response = self._lastpass.session.post(url, data=data)
@@ -230,7 +231,7 @@ class SecureNote(Secret):
         url = f'{self._lastpass.host}/getNoteHist.php'
         data = {'aid': self.id,
                 'sharedfolderid': self.shared_folder.id if self.shared_folder else '',
-                'lpversion': '4.108.1',
+                'lpversion': LASTPASS_VERSION,
                 'method': 'cr',
                 'token': self._lastpass.token}
         response = self._lastpass.session.post(url, data=data)
