@@ -14,6 +14,7 @@ Contents:
    readme
    installation
    usage
+   develop
    contributing
    modules
    authors

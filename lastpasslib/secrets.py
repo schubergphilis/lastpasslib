@@ -389,6 +389,7 @@ class Custom(SecureNote):
 
     @property
     def attribute_mapping(self):
+        """Attribute mapping."""
         return self._data.get('custom_attribute_mapping', {})
 
 
