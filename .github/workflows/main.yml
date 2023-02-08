@@ -19,7 +19,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.9.11
+          python-version: 3.9.15
 
       - name: Install pipenv
         run: pip install pipenv
@@ -46,7 +46,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: 3.9.11
+          python-version: 3.9.15
 
       - name: Install pipenv
         run: pip install pipenv
