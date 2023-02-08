@@ -18,6 +18,7 @@ class Secret:
         self._data = data
         self._shared_folder = shared_folder
         self._attachments = []
+        self._shared_to_people = None
 
     @property
     def type(self):
@@ -104,20 +105,25 @@ class Secret:
 
     @property
     def shared_to_people(self):
-        url = f'{self._lastpass.host}/getSentShareInfo.php'
-        data = {'aid': self.id,
-                'lpversion': '4.108.1',
-                'method': 'cr',
-                'token': self._lastpass.token}
-        response = self._lastpass.session.post(url, data=data)
-        if not response.ok:
-            response.raise_for_status()
-        sent = response.json().get('sent')
-        if not sent:
+        if not self.has_been_shared:
             return []
-        action_attributes = ['companyUserName', 'date', 'email', 'give', 'sharedate', 'state', 'uid']
-        actions = sent.get(self.id)
-        return [ShareAction(*[action.get(attribute) for attribute in action_attributes]) for action in actions]
+        if self._shared_to_people is None:
+            url = f'{self._lastpass.host}/getSentShareInfo.php'
+            data = {'aid': self.id,
+                    'lpversion': '4.108.1',
+                    'method': 'cr',
+                    'token': self._lastpass.token}
+            response = self._lastpass.session.post(url, data=data)
+            if not response.ok:
+                response.raise_for_status()
+            sent = response.json().get('sent')
+            if not sent:
+                return []
+            action_attributes = ['companyUserName', 'date', 'email', 'give', 'sharedate', 'state', 'uid']
+            actions = sent.get(self.id)
+            self._shared_to_people = [ShareAction(*[action.get(attribute) for attribute in action_attributes])
+                                      for action in actions]
+        return self._shared_to_people
 
 
 class Password(Secret):
