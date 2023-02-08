@@ -28,7 +28,7 @@ version = open('.VERSION').read()
 setup(
     name='''lastpasslib''',
     version=version,
-    description='''A library bable to retrieve and decrypt all items in lastpass along with their change history and attachments.''',
+    description='''A library able to retrieve and decrypt all items in lastpass along with their change history and attachments.''',
     long_description=readme + '\n\n' + history,
     author='''Costas Tyfoxylos''',
     author_email='''ctyfoxylos@schubergphilis.com''',

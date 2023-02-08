@@ -206,6 +206,7 @@ class Secret:
 
 
 class Password(Secret):
+    """Models a password and exposes appropriate attributes."""
 
     def __init__(self, lastpass_instance, data, shared_folder=None):
         super().__init__(lastpass_instance, data, shared_folder)
@@ -215,54 +216,66 @@ class Password(Secret):
 
     @property
     def action(self):
+        """Action of the password if any."""
         return self._data.get('action')
 
     @property
     def auto_login(self):
+        """Flag set if auto login is set."""
         return self._data.get('auto_login')
 
     @property
     def is_generated_password(self):
+        """Flag if this is an auto generated password."""
         return self._data.get('generated_password')
 
     @property
     def mfa_seed(self):
+        """The mfa seed of the password if set."""
         return self._data.get('mfa_seed')
 
     @property
     def never_autofill(self):
+        """Flag whether the autofill is set."""
         return self._data.get('never_autofill')
 
     @property
     def notes(self):
+        """The notes of the password."""
         return self._data.get('notes')
 
     @property
     def password(self):
+        """The password field of the password."""
         return self._data.get('password')
 
     @property
     def url(self):
+        """The url of the password."""
         return self._data.get('url')
 
     @property
     def username(self):
+        """The username field of the password."""
         return self._data.get('username')
 
     @property
     def note_history(self):
+        """The note history objects of the password if any."""
         if self._note_history is None:
             self._note_history = self._get_history_by_attribute('note')
         return self._note_history
 
     @property
     def username_history(self):
+        """The note username objects of the password if any."""
         if self._username_history is None:
             self._username_history = self._get_history_by_attribute('username')
         return self._username_history
 
     @property
     def password_history(self):
+        """The note password objects of the password if any."""
         if self._password_history is None:
             self._password_history = self._get_history_by_attribute('password')
         return self._password_history
@@ -287,6 +300,7 @@ class Password(Secret):
         return [History(*data.values()) for data in decrypted_entries]
 
     def get_latest_password_update_person(self):
+        """The email of the last person that updated the password if any, else None."""
         try:
             return self.password_history[-1].person
         except IndexError:
@@ -294,6 +308,8 @@ class Password(Secret):
 
 
 class SecureNote(Secret):
+    """Models a secure note."""
+
     attribute_mapping = {}
 
     def __init__(self, lastpass_instance, data, shared_folder):
@@ -307,6 +323,7 @@ class SecureNote(Secret):
 
     @property
     def history(self):
+        """History of the secure note edits if any."""
         if self._history is None:
             url = f'{self._lastpass.host}/getNoteHist.php'
             data = {'aid': self.id,
@@ -334,6 +351,8 @@ class SecureNote(Secret):
 
 
 class Address(SecureNote):
+    """Models an Address secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Title': 'title',
                          'First Name': 'first_name',
@@ -361,6 +380,8 @@ class Address(SecureNote):
 
 
 class BankAccount(SecureNote):
+    """Models a Bank Account secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Bank Name': 'bank_name',
                          'Account Type': 'account_type',
@@ -375,6 +396,8 @@ class BankAccount(SecureNote):
 
 
 class CreditCard(SecureNote):
+    """Models a Credit Card secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Name on Card': 'name_on_card',
                          'Type': 'type',
@@ -386,6 +409,7 @@ class CreditCard(SecureNote):
 
 
 class Custom(SecureNote):
+    """Models a Custom secure note."""
 
     @property
     def attribute_mapping(self):
@@ -394,6 +418,8 @@ class Custom(SecureNote):
 
 
 class Database(SecureNote):
+    """Models a Database secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Type': 'type',
                          'Hostname': 'hostname',
@@ -407,6 +433,8 @@ class Database(SecureNote):
 
 
 class DriverLicense(SecureNote):
+    """Models a Driver license secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Number': 'number',
                          'Expiration Date': 'expiration_date',
@@ -424,6 +452,8 @@ class DriverLicense(SecureNote):
 
 
 class EmailAccount(SecureNote):
+    """Models a Email Account secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Username': 'username',
                          'Password': 'password',
@@ -436,6 +466,8 @@ class EmailAccount(SecureNote):
 
 
 class Generic(SecureNote):
+    """Models a Generic secure note."""
+
     attribute_mapping = {}
 
     @property
@@ -444,6 +476,8 @@ class Generic(SecureNote):
 
 
 class HealthInsurance(SecureNote):
+    """Models a Health Insurance secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Company': 'company',
                          'Company Phone': 'company_phone',
@@ -460,6 +494,8 @@ class HealthInsurance(SecureNote):
 
 
 class InstantMessenger(SecureNote):
+    """Models a Instant Messenger secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Type': 'type',
                          'Username': 'username',
@@ -470,6 +506,8 @@ class InstantMessenger(SecureNote):
 
 
 class Membership(SecureNote):
+    """Models a Membership secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Organization': 'organization',
                          'Membership Number': 'membership_number',
@@ -483,6 +521,8 @@ class Membership(SecureNote):
 
 
 class Passport(SecureNote):
+    """Models a Passport secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Type': 'type',
                          'Name': 'name',
@@ -498,6 +538,8 @@ class Passport(SecureNote):
 
 
 class SshKey(SecureNote):
+    """Models a SshKey secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Bit Strength': 'bit_strength',
                          'Format': 'format',
@@ -510,6 +552,8 @@ class SshKey(SecureNote):
 
 
 class Server(SecureNote):
+    """Models a Server secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Hostname': 'hostname',
                          'Username': 'username',
@@ -518,6 +562,8 @@ class Server(SecureNote):
 
 
 class SocialSecurity(SecureNote):
+    """Models a SocialSecurity secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'Name': 'name',
                          'Number': 'number',
@@ -525,6 +571,8 @@ class SocialSecurity(SecureNote):
 
 
 class SoftwareLicense(SecureNote):
+    """Models a SoftwareLicense secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'License Key': 'license_key',
                          'Licensee': 'licensee',
@@ -541,6 +589,8 @@ class SoftwareLicense(SecureNote):
 
 
 class WifiPassword(SecureNote):
+    """Models a WifiPassword secure note."""
+
     attribute_mapping = {'Language': 'language',
                          'SSID': 'ssid',
                          'Password': 'password',
@@ -577,6 +627,7 @@ SECRET_NOTE_CLASS_MAPPING = {'Address': Address,
 
 
 class Attachment:
+    """Models an attachment of a secret."""
 
     def __init__(self, lastpass_instance, data):
         self._lastpass_instance = lastpass_instance
@@ -587,14 +638,17 @@ class Attachment:
 
     @property
     def id(self):
+        """ID of the attachment."""
         return self._data.get('id')
 
     @property
     def mimetype(self):
+        """The mimetype of the attachment."""
         return self._data.get('filetype')
 
     @property
     def uuid(self):
+        """The uuid of the attachment."""
         return self._data.get('uuid')
 
     @property
@@ -605,6 +659,7 @@ class Attachment:
 
     @property
     def filename(self):
+        """The filename of the attachment."""
         if self._filename is None:
             self._filename = EncryptManager.decrypt_aes256_auto(self._data.get('encrypted_filename').encode('utf-8'),
                                                                 self._decryption_key,
@@ -613,6 +668,7 @@ class Attachment:
 
     @property
     def content(self):
+        """The content of the attachment."""
         if self._content is None:
             url = f'{self._lastpass_instance.host}/getattach.php'
             data = {'getattach': self.uuid}
@@ -624,5 +680,14 @@ class Attachment:
         return self._content
 
     def save(self, path='.'):
+        """Saves the attachment on a given path, current working directory if not provided.
+
+        Args:
+            path: The path to save the attachment to, defaults to current working directory.
+
+        Returns:
+            None.
+
+        """
         with open(Path(path, self.filename), 'w', encoding='utf8') as ofile:
             ofile.write(self.content)
