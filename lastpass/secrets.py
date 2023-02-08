@@ -20,8 +20,12 @@ class Secret:
         self._attachments = []
 
     @property
-    def secret_type(self):
+    def type(self):
         return self.__class__.__name__
+
+    @property
+    def encryption_key(self):
+        return self._data.get('encryption_key')
 
     @property
     def attachment_encryption_key(self):
@@ -171,7 +175,7 @@ class Password(Secret):
         for entry in response.json().get('history', []):
             new = copy(entry)
             value = EncryptManager.decrypt_aes256_auto(entry.get('value').encode('utf-8'),
-                                                       self._lastpass.vault.key,
+                                                       self.encryption_key,
                                                        base64=True)
             try:
                 new['value'] = value.decode('utf-8')
@@ -199,7 +203,7 @@ class SecureNote(Secret):
                 LOGGER.error(f'Trying to over write attribute {attribute} for class {self.__class__.__name__}')
 
     @property
-    def note_history(self):
+    def history(self):
         url = f'{self._lastpass.host}/getNoteHist.php'
         data = {'aid': self.id,
                 'sharedfolderid': self.shared_folder.id if self.shared_folder else '',
@@ -217,7 +221,9 @@ class SecureNote(Secret):
                     info[attribute] = entry[index]
                 except IndexError:
                     info[attribute] = ''
-            # TODO decrypt the value
+            info['value'] = EncryptManager.decrypt_aes256_auto(info.get('value').encode('utf-8'),
+                                                               self.encryption_key,
+                                                               base64=True)
             result.append(History(**info))
         return result
 

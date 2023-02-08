@@ -206,6 +206,7 @@ class Vault:
         boolean_data = {attribute: bool(int(decoded_data.get(attribute))) for attribute in boolean_values}
         decoded_data.update(boolean_data)
         is_secure_note = decoded_data.get('is_secure_note')
+        decoded_data['encryption_key'] = encryption_key
         class_type, data = Vault._parse_secure_note(decoded_data) if is_secure_note else (Password, decoded_data)
         return class_type, data
 
