@@ -104,3 +104,43 @@ class UrlRule:
     exact_host: bool
     exact_port: bool
     case_insensitive: bool
+
+
+@dataclass
+class CompanyUser:
+    email: str
+    img: str
+    name: str
+    type: str
+    uid: str
+
+
+@dataclass
+class ShareAction:
+    company_username: str
+    date: str
+    email: str
+    give: str
+    share_date: str
+    state: str
+    _uid: str
+
+    @property
+    def id(self):
+        return self._uid
+
+    @property
+    def share_datetime(self):
+        return parse(self.share_date)
+
+    @property
+    def datetime(self):
+        return parse(self.date)
+
+    @property
+    def accepted(self):
+        return bool(int(self.state))
+
+    @property
+    def given(self):
+        return bool(int(self.give))

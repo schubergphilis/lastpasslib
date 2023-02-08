@@ -8,7 +8,7 @@ import requests
 from dateutil.parser import parse
 from requests import Session
 
-from .datamodels import Event, SharedFolder
+from .datamodels import Event, SharedFolder, CompanyUser
 from .vault import Vault
 from .lastpassexceptions import (ApiLimitReached,
                                  InvalidMfa,
@@ -158,6 +158,14 @@ class Lastpass:
 
     def get_event_history_by_date(self, start_date=None, end_date=None):
         return self._get_history_by_date(start_date, end_date, 'events')
+
+    def get_company_users_by_email(self, email_part):
+        params = {'q': email_part}
+        url = f'{self.host}/typeahead_remote.php'
+        response = self.session.post(url, params=params)
+        if not response.ok:
+            response.raise_for_status()
+        return [CompanyUser(**item) for item in response.json()]
 
     def _get_history_by_date(self, start_date, end_date, event_type):
         date_format = '%Y-%m-%d'
