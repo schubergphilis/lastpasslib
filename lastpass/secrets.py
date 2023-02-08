@@ -225,31 +225,34 @@ class SecureNote(Secret):
                 setattr(self, attribute, self._data.get(attribute))
             except AttributeError:
                 LOGGER.error(f'Trying to over write attribute {attribute} for class {self.__class__.__name__}')
+        self._history = None
 
     @property
     def history(self):
-        url = f'{self._lastpass.host}/getNoteHist.php'
-        data = {'aid': self.id,
-                'sharedfolderid': self.shared_folder.id if self.shared_folder else '',
-                'lpversion': LASTPASS_VERSION,
-                'method': 'cr',
-                'token': self._lastpass.token}
-        response = self._lastpass.session.post(url, data=data)
-        if not response.ok:
-            response.raise_for_status()
-        result = []
-        for entry in response.json():
-            info = {}
-            for index, attribute in enumerate(['value', 'date', 'person']):
-                try:
-                    info[attribute] = entry[index]
-                except IndexError:
-                    info[attribute] = ''
-            info['value'] = EncryptManager.decrypt_aes256_auto(info.get('value').encode('utf-8'),
-                                                               self.encryption_key,
-                                                               base64=True)
-            result.append(History(**info))
-        return result
+        if self._history is None:
+            url = f'{self._lastpass.host}/getNoteHist.php'
+            data = {'aid': self.id,
+                    'sharedfolderid': self.shared_folder.id if self.shared_folder else '',
+                    'lpversion': LASTPASS_VERSION,
+                    'method': 'cr',
+                    'token': self._lastpass.token}
+            response = self._lastpass.session.post(url, data=data)
+            if not response.ok:
+                response.raise_for_status()
+            result = []
+            for entry in response.json():
+                info = {}
+                for index, attribute in enumerate(['value', 'date', 'person']):
+                    try:
+                        info[attribute] = entry[index]
+                    except IndexError:
+                        info[attribute] = ''
+                info['value'] = EncryptManager.decrypt_aes256_auto(info.get('value').encode('utf-8'),
+                                                                   self.encryption_key,
+                                                                   base64=True)
+                result.append(History(**info))
+            self._history = result
+        return self._history
 
 
 class Address(SecureNote):

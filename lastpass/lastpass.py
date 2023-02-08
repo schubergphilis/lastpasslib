@@ -9,7 +9,6 @@ from dateutil.parser import parse
 from requests import Session
 
 from .datamodels import Event, SharedFolder, CompanyUser
-from .vault import Vault
 from .lastpassexceptions import (ApiLimitReached,
                                  InvalidMfa,
                                  InvalidPassword,
@@ -17,6 +16,7 @@ from .lastpassexceptions import (ApiLimitReached,
                                  ServerError,
                                  UnknownUsername,
                                  UnexpectedResponse)
+from .vault import Vault
 
 LOGGER_BASENAME = 'lastpasslib'
 LOGGER = logging.getLogger(LOGGER_BASENAME)
@@ -166,6 +166,10 @@ class Lastpass:
         if not response.ok:
             response.raise_for_status()
         return [CompanyUser(**item) for item in response.json()]
+
+    def get_company_user_by_email(self, email):
+        return next((user for user in self.get_company_users_by_email(email) if user.email.lower() == email.lower()),
+                    None)
 
     def _get_history_by_date(self, start_date, end_date, event_type):
         date_format = '%Y-%m-%d'
