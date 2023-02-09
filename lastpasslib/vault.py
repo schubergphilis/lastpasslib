@@ -278,24 +278,9 @@ class Vault:
         return class_type, data
 
     @staticmethod
-    def _try_to_identify_note_type_in_notes(notes):
-        try:
-            note_type = notes.splitlines()[0].split(':', 1)[1]
-        except IndexError:
-            note_type = 'Generic'
-        if note_type not in SECRET_NOTE_CLASS_MAPPING:
-            LOGGER.warning(f'Unknown note type :{note_type}')
-            note_type = 'Generic'
-        return note_type
-
-    @staticmethod
     def _get_class_and_key_mapping(data):
-        custom_note_type = SECRET_NOTE_CLASS_MAPPING.get('Custom')
-        note_type = data.get('note_type')
-        if not note_type:
-            note_type = Vault._try_to_identify_note_type_in_notes(data.get('notes'))
-            data['note_type'] = note_type
-        class_type = SECRET_NOTE_CLASS_MAPPING.get(note_type, custom_note_type)
+        note_type = data.get('note_type') or 'Generic'
+        class_type = SECRET_NOTE_CLASS_MAPPING.get(note_type, SECRET_NOTE_CLASS_MAPPING.get('Custom'))
         key_mapping = class_type.attribute_mapping
         if data.get('note_type').startswith('Custom'):
             # this needs work as the attributes are not part of the class.
