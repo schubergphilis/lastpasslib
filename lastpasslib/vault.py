@@ -275,9 +275,8 @@ class Vault:
     def _try_to_identify_note_type_in_notes(notes):
         note_type = notes.splitlines()[0].split(':', 1)[1]
         if note_type not in SECRET_NOTE_CLASS_MAPPING:
-            LOGGER.warning('Unknown note type.')
-            note_type = 'Custom'
-            # raise TypeError(f'Unknown note type :{note_type}')
+            LOGGER.warning(f'Unknown note type :{note_type}')
+            note_type = 'Generic'
         return note_type
 
     @staticmethod
