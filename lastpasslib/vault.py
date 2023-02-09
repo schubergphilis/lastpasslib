@@ -263,15 +263,12 @@ class Vault:
                                                                                encryption_key,
                                                                                base64=True)
         data['url'] = EncryptManager.decode_hex(data.get('url'))
-        try:
-            decoded_data = {key: value.decode('utf-8') for key, value in data.items()}
-        except UnicodeDecodeError:
-            print(data)
-            is_secure_note = data.get('is_secure_note')
-            data['encryption_key'] = encryption_key
-            class_type, data = Vault._parse_secure_note(data) if is_secure_note else (Password, data)
-            return class_type, data
-
+        decoded_data = {}
+        for key, value in data.items():
+            try:
+                decoded_data[key] = value.decode('utf-8')
+            except UnicodeDecodeError:
+                decoded_data[key] = str(value)
         boolean_data = {attribute: bool(int(decoded_data.get(attribute))) for attribute in boolean_values}
         decoded_data.update(boolean_data)
         is_secure_note = decoded_data.get('is_secure_note')
