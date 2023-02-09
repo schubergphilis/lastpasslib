@@ -267,6 +267,7 @@ class Vault:
         for key, value in data.items():
             try:
                 decoded_data[key] = value.decode('utf-8')
+                LOGGER.warning(f'Value :{value} of key: {key} for secret :{data.get("name")} cannot be decoded.')
             except UnicodeDecodeError:
                 decoded_data[key] = str(value)
         boolean_data = {attribute: bool(int(decoded_data.get(attribute))) for attribute in boolean_values}
