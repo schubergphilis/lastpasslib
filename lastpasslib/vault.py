@@ -76,6 +76,7 @@ class Vault:
         self._never_urls = None
         self._equivalent_domains = None
         self._url_rules = None
+        self._errors = []
 
     @property
     def key(self):
@@ -181,13 +182,18 @@ class Vault:
         self._url_rules = [self._parse_url_rules(chunk.payload) for chunk in urul_chunks]
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
-                class_type, data = self._parse_secret(chunk.payload, key)
-                secret = class_type(self._lastpass, data, shared_folder)
-                if secret.has_attachment:
-                    for attachment_data in self._get_attachments_by_parent_id(secret.id):
-                        attachment_data['decryption_key'] = secret.attachment_encryption_key
-                        attachment = Attachment(self._lastpass, attachment_data)
-                        secret.add_attachment(attachment)
+                try:
+                    class_type, data = self._parse_secret(chunk.payload, key)
+                    secret = class_type(self._lastpass, data, shared_folder)
+                    if secret.has_attachment:
+                        for attachment_data in self._get_attachments_by_parent_id(secret.id):
+                            attachment_data['decryption_key'] = secret.attachment_encryption_key
+                            attachment = Attachment(self._lastpass, attachment_data)
+                            secret.add_attachment(attachment)
+                except Exception:
+                    # self._logger.error(chunk.payload, key)
+                    self._errors.append((chunk.payload, key))
+                    continue
                 secrets.append(secret)
             elif chunk.id == b'PRIK':
                 rsa_private_key = EncryptManager.decrypt_rsa_key(chunk.payload, self.key)
@@ -256,8 +262,15 @@ class Vault:
                           'has_been_shared', 'auto_change_password_supported', 'is_breached']
         plain_encrypted = ['name', 'group', 'notes', 'username', 'password', 'mfa_seed', 'undocumented_attribute_1']
         data = {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
-        decrypted_data = {attribute: EncryptManager.decrypt_aes256_auto(data.get(attribute), encryption_key)
-                          for attribute in plain_encrypted}
+        decrypted_data = {}
+        for attribute in plain_encrypted:
+            try:
+                value = EncryptManager.decrypt_aes256_auto(data.get(attribute), encryption_key)
+            except ValueError:
+                value = data.get(attribute).decode('utf-8')
+                LOGGER.warning(f'Attribute: {attribute} with value :{value} from secret :{decrypted_data.get("name")}'
+                               f'could not be decrypted, used as is, decoded to utf-8 if possible.')
+            decrypted_data[attribute] = value
         data.update(decrypted_data)
         data['attachment_encryption_key'] = EncryptManager.decrypt_aes256_auto(data.get('attachment_encryption_key'),
                                                                                encryption_key,
@@ -266,11 +279,22 @@ class Vault:
         decoded_data = {}
         for key, value in data.items():
             try:
-                decoded_data[key] = value.decode('utf-8')
-                LOGGER.warning(f'Value :{value} of key: {key} for secret :{data.get("name")} cannot be decoded.')
+                if key != 'realm_data':
+                    try:
+                        decoded_data[key] = value.decode('utf-8')
+                    except AttributeError:
+                        decoded_data[key] = value
             except UnicodeDecodeError:
+                LOGGER.warning(f'Value :{value} of key: {key} for secret :{data.get("name")} cannot be decoded. '
+                               f'Encryption key : {encryption_key}')
                 decoded_data[key] = str(value)
-        boolean_data = {attribute: bool(int(decoded_data.get(attribute))) for attribute in boolean_values}
+        boolean_data = {}
+        for attribute in boolean_values:
+            try:
+                boolean_data[attribute] = bool(int(decoded_data.get(attribute)))
+            except ValueError:
+                LOGGER.error(f'Attribute :{attribute} for secret :{decoded_data.get(attribute)} cannot be decoded.')
+                boolean_data[attribute] = decoded_data.get(attribute)
         decoded_data.update(boolean_data)
         is_secure_note = decoded_data.get('is_secure_note')
         decoded_data['encryption_key'] = encryption_key

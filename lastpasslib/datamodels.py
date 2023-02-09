@@ -126,8 +126,8 @@ class SharedFolder:
     download: str
     outside_enterprise: str
     cid: str
-    share_data: str
-    sharer: str
+    share_data: str = ''
+    sharer: str = ''
     shared_name: str = ''
 
     @property

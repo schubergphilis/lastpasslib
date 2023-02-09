@@ -316,9 +316,13 @@ class SecureNote(Secret):
         super().__init__(lastpass_instance, data, shared_folder)
         for attribute in self.attribute_mapping.values():
             try:
+                # object_attribute = getattr(self, attribute)
+                # object_attribute = self._data.get(attribute)
                 setattr(self, attribute, self._data.get(attribute))
             except AttributeError:
-                LOGGER.error(f'Trying to over write attribute {attribute} for class {self.__class__.__name__}')
+                # setattr(self, attribute, self._data.get(attribute))
+                pass
+                # LOGGER.error(f'Trying to overwrite attribute {attribute} for class {self.__class__.__name__}')
         self._history = None
 
     @property
