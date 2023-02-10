@@ -41,7 +41,7 @@ from Crypto.Cipher import PKCS1_OAEP
 from binascii import hexlify
 
 from .datamodels import NeverUrl, EquivalentDomain, UrlRule
-from .dataschemas import SecretSchema, SharedFolderSchema
+from .dataschemas import SecretSchema, SharedFolderSchema, AttachmentSchema
 from .encryption import Blob, EncryptManager, Stream
 from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom
 
@@ -242,10 +242,10 @@ class Vault:
     @staticmethod
     def _parse_attachment(payload):
         stream = Stream(payload)
-        attributes = ['id', 'parent_id', 'filetype', 'uuid', 'size', 'encrypted_filename']
-        data = {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
-        decoded_data = {key: value.decode('utf-8') for key, value in data.items()}
-        return decoded_data
+        attachment = AttachmentSchema()
+        data = Vault._get_attribute_payload_data(stream, attachment.attributes)
+        data.update(Vault._get_utf_decoded(data, attachment.decoded_attributes))
+        return data
 
     @staticmethod
     def _parse_secret(payload, encryption_key):
@@ -344,18 +344,17 @@ class Vault:
         try:
             valid_lines = [line for line in data.get('notes').split('\n')
                            if not any([not line, ':' not in line])]
+            for line in valid_lines:
+                # Split only once so that strings like "Hostname:host.example.com:80" get interpreted correctly
+                key, value = line.split(':', 1)
+                entry = key_mapping.get(key)
+                if entry:
+                    note_data[entry] = value
+            data.update(note_data)
+            if class_type == Custom:
+                data['custom_attribute_mapping'] = key_mapping
         except TypeError:
             LOGGER.exception(f'Could not identify valid lines in the note of secret {secret_name} maybe it is corrupt?')
-            return class_type, data
-        for line in valid_lines:
-            # Split only once so that strings like "Hostname:host.example.com:80" get interpreted correctly
-            key, value = line.split(':', 1)
-            entry = key_mapping.get(key)
-            if entry:
-                note_data[entry] = value
-        data.update(note_data)
-        if class_type == Custom:
-            data['custom_attribute_mapping'] = key_mapping
         return class_type, data
 
     @staticmethod

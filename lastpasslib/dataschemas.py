@@ -74,3 +74,14 @@ class SharedFolderSchema:
         self.boolean_values = []
         self.not_decodable_values = ['encrypted_key', 'encrypted_name', 'unknown_flag_1', 'unknown_flag_2', 'key']
         self.decoded_attributes = [value for value in self.attributes if value not in self.not_decodable_values]
+
+
+class AttachmentSchema:
+
+    def __init__(self):
+        self.attributes = ['id', 'parent_id', 'filetype', 'uuid', 'size', 'encrypted_filename']
+        self.plain_encrypted = []
+        self.hex_decoded = []
+        self.boolean_values = []
+        self.not_decodable_values = []
+        self.decoded_attributes = [value for value in self.attributes if value not in self.not_decodable_values]
