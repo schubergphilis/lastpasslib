@@ -115,6 +115,14 @@ class Vault:
         return self._blob_
 
     @property
+    def passwords(self):
+        return [secret for secret in self.secrets if secret.type == 'Password']
+
+    @property
+    def secure_notes(self):
+        return [secret for secret in self.secrets if secret.type != 'Password']
+
+    @property
     def secrets(self):
         """The decrypted secrets of the vault."""
         if self._secrets is None:
@@ -163,6 +171,18 @@ class Vault:
 
         """
         return next((secret for secret in self.secrets if secret.name == name), None)
+
+    def get_secret_by_id(self, id_):
+        """Gets a secret from the vault by id.
+
+        Args:
+            id_: The id to match on.
+
+        Returns:
+            The secret if a match is found, else None.
+
+        """
+        return next((secret for secret in self.secrets if secret.id == id_), None)
 
     def _get_attachments_by_parent_id(self, id_):
         return [attachment for attachment in self._attachments if attachment.get('parent_id') == id_]
@@ -293,7 +313,7 @@ class Vault:
 
     @staticmethod
     def _transform_data_attributes(data, attributes, transformation, arguments=None):
-        id = data.get('id')
+        id_ = data.get('id')
         arguments = arguments if arguments else {}
         transformed_data = {}
         for attribute in attributes:
@@ -301,7 +321,7 @@ class Vault:
             try:
                 transformed_data[attribute] = transformation(value, **arguments)
             except Exception:  # noqa
-                LOGGER.error(f'Attribute :{attribute} with value: {value} for secret :{id} cannot be transformed.')
+                LOGGER.error(f'Attribute :{attribute} with value: {value} for secret :{id_} cannot be transformed.')
         return transformed_data
 
     @staticmethod
