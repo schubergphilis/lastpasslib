@@ -42,7 +42,7 @@ __email__ = '''<ctyfoxylos@schubergphilis.com>'''
 __status__ = '''Development'''  # "Prototype", "Development", "Production".
 
 
-class Secret:
+class SecretSchema:
 
     def __init__(self):
         self.attributes = ['id', 'name', 'group', 'url', 'notes', 'is_favorite', 'shared_from_id', 'username',
@@ -62,4 +62,15 @@ class Secret:
                                'auto_login_set', 'never_autofill', 'is_basic_auth', 'is_deleted', 'is_individual_share',
                                'has_been_shared', 'auto_change_password_supported', 'is_breached']
         self.not_decodable_values = ['realm_data']
+        self.decoded_attributes = [value for value in self.attributes if value not in self.not_decodable_values]
+
+
+class SharedFolderSchema:
+
+    def __init__(self):
+        self.attributes = ['id', 'encrypted_key', 'encrypted_name', 'unknown_flag_1', 'unknown_flag_2', 'key']
+        self.plain_encrypted = []
+        self.hex_decoded = ['encrypted_key']
+        self.boolean_values = []
+        self.not_decodable_values = ['encrypted_key', 'encrypted_name', 'unknown_flag_1', 'unknown_flag_2', 'key']
         self.decoded_attributes = [value for value in self.attributes if value not in self.not_decodable_values]

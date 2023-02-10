@@ -41,7 +41,7 @@ from Crypto.Cipher import PKCS1_OAEP
 from binascii import hexlify
 
 from .datamodels import NeverUrl, EquivalentDomain, UrlRule
-from .dataschemas import Secret
+from .dataschemas import SecretSchema, SharedFolderSchema
 from .encryption import Blob, EncryptManager, Stream
 from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom
 
@@ -203,9 +203,11 @@ class Vault:
             elif chunk.id == b'SHAR':
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
-                folder_id, folder_name, key = self._parse_shared_folder(chunk.payload, self.key, rsa_private_key)
-                shared_folder = self._lastpass.get_shared_folder_by_id(folder_id.decode('utf-8'))
-                shared_folder.shared_name = folder_name.decode('utf-8')
+                data = self._parse_shared_folder(chunk.payload, self.key, rsa_private_key)
+                # folder_id, folder_name, key = self._parse_shared_folder(chunk.payload, self.key, rsa_private_key)
+                shared_folder = self._lastpass.get_shared_folder_by_id(data.get('id'))
+                shared_folder.shared_name = data.get('name')
+                key = data.get('key')
         return secrets
 
     @staticmethod
@@ -252,7 +254,7 @@ class Vault:
         All secure notes are ACCTs but not all of them store account information.
         """
         stream = Stream(payload)
-        secret = Secret()
+        secret = SecretSchema()
         data = Vault._get_attribute_payload_data(stream, secret.attributes)
         data.update(Vault._get_decrypted_data(data, secret.plain_encrypted, encryption_key))
         data.update(Vault._get_decrypted_data(data, secret.base_64_encrypted, encryption_key, base64=True))
@@ -359,24 +361,23 @@ class Vault:
     @staticmethod
     def _parse_shared_folder(payload, encryption_key, rsa_key):
         stream = Stream(payload)
-        id_ = stream.get_payload_by_size(stream.read_byte_size(4))
-        encrypted_key = EncryptManager.decode_hex(stream.get_payload_by_size(stream.read_byte_size(4)))
-        encrypted_name = stream.get_payload_by_size(stream.read_byte_size(4))
-        unknown_flag_1 = stream.get_payload_by_size(stream.read_byte_size(4))
-        unknown_flag_2 = stream.get_payload_by_size(stream.read_byte_size(4))
-        _, _ = unknown_flag_1, unknown_flag_2
-        key = stream.get_payload_by_size(stream.read_byte_size(4))
+        folder = SharedFolderSchema()
+        data = Vault._get_attribute_payload_data(stream, folder.attributes)
+        data.update(Vault._get_hex_decoded(data, folder.hex_decoded))
+        key = data.get('key')
         # Shared folder encryption key might come already in pre-decrypted form,
         # where it's only AES encrypted with the regular encryption key.
         # When the key is blank, then there's an RSA encrypted key, which has to
         # be decrypted first before use.
         if not key:
-            hex_key = PKCS1_OAEP.new(rsa_key).decrypt(encrypted_key)
+            hex_key = PKCS1_OAEP.new(rsa_key).decrypt(data.get('encrypted_key'))
         else:
             hex_key = EncryptManager.decrypt_aes256_auto(key, encryption_key)
         key = EncryptManager.decode_hex(hex_key)
-        name = EncryptManager.decrypt_aes256_auto(encrypted_name, key, base64=True)
-        return id_, name, key
+        data['key'] = key
+        data['name'] = EncryptManager.decrypt_aes256_auto(data.get('encrypted_name'), key, base64=True).decode('utf-8')
+        data.update(Vault._get_utf_decoded(data, folder.decoded_attributes))
+        return data
 
     def refresh(self):
         """Refreshes the vault by cleaning up the encrypted blob and the decrypted secrets and forcing the retrieval."""
