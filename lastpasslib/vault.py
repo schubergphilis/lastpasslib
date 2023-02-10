@@ -41,6 +41,7 @@ from Crypto.Cipher import PKCS1_OAEP
 from binascii import hexlify
 
 from .datamodels import NeverUrl, EquivalentDomain, UrlRule
+from .dataschemas import Secret
 from .encryption import Blob, EncryptManager, Stream
 from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom
 
@@ -76,7 +77,7 @@ class Vault:
         self._never_urls = None
         self._equivalent_domains = None
         self._url_rules = None
-        self._errors = []
+        self.unable_to_decrypt = []
 
     @property
     def key(self):
@@ -190,9 +191,11 @@ class Vault:
                             attachment_data['decryption_key'] = secret.attachment_encryption_key
                             attachment = Attachment(self._lastpass, attachment_data)
                             secret.add_attachment(attachment)
-                except Exception:
-                    # self._logger.error(chunk.payload, key)
-                    self._errors.append((chunk.payload, key))
+                # We want to skip any possible error so the process completes and we gather the errors so they can be
+                # troubleshot
+                except Exception:  # noqa
+                    self._logger.exception('Unable to decrypt chunk, adding to the error list.')
+                    self.unable_to_decrypt.append((chunk, key))
                     continue
                 secrets.append(secret)
             elif chunk.id == b'PRIK':
@@ -249,57 +252,68 @@ class Vault:
         All secure notes are ACCTs but not all of them store account information.
         """
         stream = Stream(payload)
-        attributes = ['id', 'name', 'group', 'url', 'notes', 'is_favorite', 'shared_from_id', 'username', 'password',
-                      'is_password_protected', 'is_generated_password', 'is_secure_note', 'last_touch_timestamp',
-                      'auto_login_set', 'never_autofill', 'realm_data', 'fi_id', 'custom_js', 'submit_id', 'captcha_id',
-                      'ur_id', 'is_basic_auth', 'method', 'action', 'group_id', 'is_deleted',
-                      'attachment_encryption_key', 'has_attachment', 'is_individual_share', 'note_type', 'no_alert',
-                      'last_modified_gmt', 'has_been_shared', 'last_password_change_gmt', 'created_gmt', 'vulnerable',
-                      'auto_change_password_supported', 'is_breached', 'custom_note_definition_json', 'mfa_seed']
-        attributes.extend([f'undocumented_attribute_{index}' for index in range(1, 4)])
-        boolean_values = ['is_favorite', 'is_password_protected', 'is_generated_password', 'is_secure_note',
-                          'auto_login_set', 'never_autofill', 'is_basic_auth', 'is_deleted', 'is_individual_share',
-                          'has_been_shared', 'auto_change_password_supported', 'is_breached']
-        plain_encrypted = ['name', 'group', 'notes', 'username', 'password', 'mfa_seed', 'undocumented_attribute_1']
-        data = {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
-        decrypted_data = {}
-        for attribute in plain_encrypted:
+        secret = Secret()
+        data = Vault._get_attribute_payload_data(stream, secret.attributes)
+        data.update(Vault._get_decrypted_data(data, secret.plain_encrypted, encryption_key))
+        data.update(Vault._get_decrypted_data(data, secret.base_64_encrypted, encryption_key, base64=True))
+        data.update(Vault._get_hex_decoded(data, secret.hex_decoded))
+        data.update(Vault._get_utf_decoded(data, secret.decoded_attributes))
+        data.update(Vault._get_boolean_values(data, secret.boolean_values))
+        data['encryption_key'] = encryption_key
+        class_type, data = Vault._parse_secure_note(data) if data.get('is_secure_note') else (Password, data)
+        return class_type, data
+
+    @staticmethod
+    def _get_boolean_values(data, attributes):
+        boolean_data = {}
+        for attribute in attributes:
+            value = data.get(attribute)
             try:
-                value = EncryptManager.decrypt_aes256_auto(data.get(attribute), encryption_key)
+                value = bool(int(value))
             except ValueError:
-                value = data.get(attribute).decode('utf-8')
+                LOGGER.error(
+                    f'Attribute :{attribute} with value: {value} for secret :{data.get("name")} cannot be cast to bool.')
+            boolean_data[attribute] = value
+        return boolean_data
+
+    @staticmethod
+    def _get_hex_decoded(data, attributes):
+        # TODO Elaborate error catching in the iteration.
+        hex_decoded_data = {}
+        for attribute in attributes:
+            hex_decoded_data[attribute] = EncryptManager.decode_hex(data.get(attribute))
+        return hex_decoded_data
+
+    @staticmethod
+    def _get_utf_decoded(data, attributes):
+        decoded_data = {}
+        for attribute in attributes:
+            value = data.get(attribute)
+            try:
+                value = value.decode('utf-8')
+            except UnicodeDecodeError:
+                LOGGER.warning(f'Value :{value} of attribute: {attribute} for secret :{data.get("name")}'
+                               f' cannot be decoded. ')
+            decoded_data[attribute] = value
+        return decoded_data
+
+    @staticmethod
+    def _get_decrypted_data(data, attributes, encryption_key, base64=False):
+        decrypted_data = {}
+        for attribute in attributes:
+            value = data.get(attribute)
+            try:
+                value = EncryptManager.decrypt_aes256_auto(value, encryption_key, base64=base64)
+            except ValueError:
                 LOGGER.warning(f'Attribute: {attribute} with value :{value} from secret :{decrypted_data.get("name")}'
                                f'could not be decrypted, used as is, decoded to utf-8 if possible.')
             decrypted_data[attribute] = value
-        data.update(decrypted_data)
-        data['attachment_encryption_key'] = EncryptManager.decrypt_aes256_auto(data.get('attachment_encryption_key'),
-                                                                               encryption_key,
-                                                                               base64=True)
-        data['url'] = EncryptManager.decode_hex(data.get('url'))
-        decoded_data = {}
-        for key, value in data.items():
-            try:
-                if key != 'realm_data':
-                    try:
-                        decoded_data[key] = value.decode('utf-8')
-                    except AttributeError:
-                        decoded_data[key] = value
-            except UnicodeDecodeError:
-                LOGGER.warning(f'Value :{value} of key: {key} for secret :{data.get("name")} cannot be decoded. '
-                               f'Encryption key : {encryption_key}')
-                decoded_data[key] = str(value)
-        boolean_data = {}
-        for attribute in boolean_values:
-            try:
-                boolean_data[attribute] = bool(int(decoded_data.get(attribute)))
-            except ValueError:
-                LOGGER.error(f'Attribute :{attribute} for secret :{decoded_data.get(attribute)} cannot be decoded.')
-                boolean_data[attribute] = decoded_data.get(attribute)
-        decoded_data.update(boolean_data)
-        is_secure_note = decoded_data.get('is_secure_note')
-        decoded_data['encryption_key'] = encryption_key
-        class_type, data = Vault._parse_secure_note(decoded_data) if is_secure_note else (Password, decoded_data)
-        return class_type, data
+        return decrypted_data
+
+    @staticmethod
+    def _get_attribute_payload_data(stream, attributes):
+        # TODO Elaborate error catching in the iteration.
+        return {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
 
     @staticmethod
     def _get_class_and_key_mapping(data):
@@ -322,10 +336,15 @@ class Vault:
 
     @staticmethod
     def _parse_secure_note(data):
+        secret_name = data.get('name')
         class_type, key_mapping = Vault._get_class_and_key_mapping(data)
         note_data = {}
-        valid_lines = [line for line in data.get('notes').split('\n')
-                       if not any([not line, ':' not in line])]
+        try:
+            valid_lines = [line for line in data.get('notes').split('\n')
+                           if not any([not line, ':' not in line])]
+        except TypeError:
+            LOGGER.exception(f'Could not identify valid lines in the note of secret {secret_name} maybe it is corrupt?')
+            return class_type, data
         for line in valid_lines:
             # Split only once so that strings like "Hostname:host.example.com:80" get interpreted correctly
             key, value = line.split(':', 1)

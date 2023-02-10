@@ -316,13 +316,11 @@ class SecureNote(Secret):
         super().__init__(lastpass_instance, data, shared_folder)
         for attribute in self.attribute_mapping.values():
             try:
-                # object_attribute = getattr(self, attribute)
-                # object_attribute = self._data.get(attribute)
                 setattr(self, attribute, self._data.get(attribute))
             except AttributeError:
-                # setattr(self, attribute, self._data.get(attribute))
+                # There is a conflict between a note field and one of the set attributes in the secret so the attribute
+                # cannot be set but the value will be exposed by the parent secret class attribute.
                 pass
-                # LOGGER.error(f'Trying to overwrite attribute {attribute} for class {self.__class__.__name__}')
         self._history = None
 
     @property
