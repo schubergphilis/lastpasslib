@@ -367,6 +367,15 @@ class Lastpass:
         """
         return [secret for secret in self.get_secrets() if secret.has_attachment]
 
+    def get_secrets_shared_directly(self):
+        """Gets secrets that have been shared directly and not as part of a shared folder.
+
+        Returns:
+            list: A list of secrets that have been shared directly.
+
+        """
+        return [secret for secret in self.get_secrets() if secret.has_been_shared]
+
     def get_passwords(self):
         """Gets only the passwords from the vault.
 

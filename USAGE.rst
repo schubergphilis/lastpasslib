@@ -13,7 +13,7 @@ To use lastpasslib in a project:
     # Just showing a fragment of info exposed.
 
     # iterate through all secrets:
-    for secret in lastpass.vault.secrets:
+    for secret in lastpass.get_secrets():
         print(secret.name)
         # if a secret is shared print the info
         if secret.shared_to_people:

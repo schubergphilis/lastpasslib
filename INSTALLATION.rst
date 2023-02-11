@@ -15,6 +15,3 @@ Or, if you are using pipenv::
 
     $ pipenv install lastpasslib
 
-Or, if you are using pipx::
-
-    $ pipx install lastpasslib
