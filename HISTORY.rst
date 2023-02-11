@@ -7,3 +7,9 @@ History
 ---------------------
 
 * First code creation
+
+
+0.1.0 (11-02-2023)
+------------------
+
+* Initial release
