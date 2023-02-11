@@ -48,7 +48,9 @@ from .lastpasslibexceptions import (ApiLimitReached,
                                     MfaRequired,
                                     ServerError,
                                     UnknownUsername,
-                                    UnexpectedResponse)
+                                    UnexpectedResponse,
+                                    InvalidSecretType)
+from .secrets import SECURE_NOTE_TYPES
 from .vault import Vault
 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
@@ -208,11 +210,6 @@ class Lastpass:
         """
         return next((folder for folder in self.shared_folders if folder.id == id_), None)
 
-    @property
-    def vault(self):
-        """The vault object that exposes the secrets and ways to interact with it."""
-        return self._vault
-
     def get_login_history_by_date(self, start_date=None, end_date=None):
         """Get login history events by a range of dates.
 
@@ -257,7 +254,7 @@ class Lastpass:
         return [CompanyUser(**item) for item in response.json()]
 
     def get_company_user_by_email(self, email):
-        """Gets a company user that exactlty match a provided email.
+        """Gets a company user that exactly match a provided email.
 
         Args:
             email: The email to match to.
@@ -291,6 +288,178 @@ class Lastpass:
             response.raise_for_status()
         items = response.json().get('response', {}).get('value', {}).get('items', [])
         return [Event(*item.values()) for item in items]
+
+    def get_secrets(self, filter_=None):
+        """Gets secrets from the vault.
+
+        Args:
+            filter_: The secret type or types to filter.
+
+        Returns:
+            list: A list of secrets matching the filter or all secrets of the vault.
+
+        """
+        filter_ = Lastpass._validate_filter(filter_)
+        return [secret for secret in self._vault.secrets if secret.type in filter_]
+
+    def get_secret_by_name(self, name):
+        """Gets a secret from the vault by name.
+
+        Args:
+            name: The name to match on, case-sensitive.
+
+        Returns:
+            The secret if a match is found, else None.
+
+        """
+        return next((secret for secret in self.get_secrets() if secret.name == name), None)
+
+    def get_secret_by_id(self, id_):
+        """Gets a secret from the vault by id.
+
+        Args:
+            id_: The id to match on.
+
+        Returns:
+            The secret if a match is found, else None.
+
+        """
+        return next((secret for secret in self.get_secrets() if secret.id == id_), None)
+
+    def get_passwords_with_password_updated_before_date(self, date):
+        """Gets passwords with passwords updates before the given date.
+
+        Args:
+            date: The date to match with. Parsing is applied on the date so any sane format will work.
+                example: '22 sep 2022' or '22-09-2002' or '22/09/2022' should all work fine.
+                To avoid ambiguity between US and EU date format a format with a named month is preferred.
+
+        Returns:
+            A list of passwords that their password field had been updated before the given date.
+
+        """
+        date = parse(date)
+        return [secret for secret in self.get_passwords()
+                if secret.last_password_change_datetime < date]
+
+    def get_secure_notes_updated_before_date(self, date):
+        """Gets secure notes with updates before the given date.
+
+        Args:
+            date: The date to match with. Parsing is applied on the date so any sane format will work.
+                example: '22 sep 2022' or '22-09-2002' or '22/09/2022' should all work fine.
+                To avoid ambiguity between US and EU date format a format with a named month is preferred.
+
+        Returns:
+            A list of secure notes that have been updated before the given date.
+
+        """
+        date = parse(date)
+        return [secret for secret in self.get_secure_notes()
+                if secret.last_modified_datetime < date]
+
+    def get_secrets_with_attachments(self):
+        """Gets secrets with attachments.
+
+        Returns:
+            list: A list of secrets with attachments.
+
+        """
+        return [secret for secret in self.get_secrets() if secret.has_attachment]
+
+    def get_passwords(self):
+        """Gets only the passwords from the vault.
+
+        Returns:
+            A list of password type secrets.
+
+        """
+        return self.get_secrets(filter_='Password')
+
+    def get_passwords_with_attachments(self):
+        """Gets passwords with attachments.
+
+        Returns:
+            list: A list of passwords with attachments.
+
+        """
+        return [secret for secret in self.get_passwords() if secret.has_attachment]
+
+    def get_secure_notes(self):
+        """Gets only secure notes for the vault.
+
+        Returns:
+            A list of secure note type secrets.
+
+        """
+        return self.get_secrets(filter_=SECURE_NOTE_TYPES)
+
+    def get_secure_notes_with_attachments(self):
+        """Gets secure notes with attachments.
+
+        Returns:
+            list: A list of secure notes with attachments.
+
+        """
+        return [secret for secret in self.get_secure_notes() if secret.has_attachment]
+
+    def get_attachments(self):
+        """Gets all attachments from all secrets in the vault.
+
+        Returns:
+            list: A list of attachment objects from all secrets of the vault.
+
+        """
+        attachments = []
+        for secret in self.get_secrets_with_attachments():
+            for attachment in secret.attachments:
+                attachments.append(attachment)
+        return attachments
+
+    def decrypt_blob(self, blob):
+        """Decrypts a provided blob of a vault back up and returns the unencrypted secrets.
+
+        Args:
+            blob: The blob to decrypt.
+
+        Returns:
+            list: A list of secrets in the blob.
+
+        """
+        return self._vault.decrypt_blob(blob)
+
+    @staticmethod
+    def _validate_filter(filter_):
+        all_types = SECURE_NOTE_TYPES + ['Password']
+        filter_ = filter_ if filter_ else all_types
+        if not isinstance(filter_, (tuple, list)):
+            filter_ = [filter_]
+        diff = set(filter_) - set(all_types)
+        if diff:
+            raise InvalidSecretType(diff)
+        return filter_
+
+    def refresh(self):
+        """Refreshes the vault by getting the blob again and decrypting everything.
+
+        Returns:
+            True on success, False otherwise.
+
+        """
+        return self._vault.refresh()
+
+    def save_vault_blob(self, path='.', name='vault.blob'):
+        """Can save the downloaded blob.
+
+        Args:
+            path: The path to save the blob to, defaults to local directory.
+            name: The name to save the blob as, defaults to "vault.blob".
+
+        Returns:
+            None.
+
+        """
+        return self._vault.save(path, name)
 
     def logout(self):
         """Logs out of the session."""

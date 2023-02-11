@@ -115,18 +115,10 @@ class Vault:
         return self._blob_
 
     @property
-    def passwords(self):
-        return [secret for secret in self.secrets if secret.type == 'Password']
-
-    @property
-    def secure_notes(self):
-        return [secret for secret in self.secrets if secret.type != 'Password']
-
-    @property
     def secrets(self):
         """The decrypted secrets of the vault."""
         if self._secrets is None:
-            self._secrets = self._decrypt_blob(self._blob)
+            self._secrets = self.decrypt_blob(self._blob)
         return self._secrets
 
     @property
@@ -160,34 +152,10 @@ class Vault:
             _ = self.secrets
         return self._url_rules
 
-    def get_secret_by_name(self, name):
-        """Gets a secret from the vault by name.
-
-        Args:
-            name: The name to match on, case-sensitive.
-
-        Returns:
-            The secret if a match is found, else None.
-
-        """
-        return next((secret for secret in self.secrets if secret.name == name), None)
-
-    def get_secret_by_id(self, id_):
-        """Gets a secret from the vault by id.
-
-        Args:
-            id_: The id to match on.
-
-        Returns:
-            The secret if a match is found, else None.
-
-        """
-        return next((secret for secret in self.secrets if secret.id == id_), None)
-
     def _get_attachments_by_parent_id(self, id_):
         return [attachment for attachment in self._attachments if attachment.get('parent_id') == id_]
 
-    def _decrypt_blob(self, data):  # pylint: disable=too-many-locals
+    def decrypt_blob(self, data):  # pylint: disable=too-many-locals
         blob = Blob(data)
         secrets = []
         key = self.key
@@ -347,7 +315,7 @@ class Vault:
     def _parse_secure_note(data):
         secret_name = data.get('name')
         class_type, key_mapping = Vault._get_class_and_key_mapping(data)
-        note_data = {}
+        note_data = {'original_notes': data.get('notes', '')}
         try:
             valid_lines = [line for line in data.get('notes').split('\n')
                            if not any([not line, ':' not in line])]
@@ -392,9 +360,17 @@ class Vault:
     def refresh(self):
         """Refreshes the vault by cleaning up the encrypted blob and the decrypted secrets and forcing the retrieval."""
         self._logger.info('Cleaning up secrets and blob.')
+        self._attachments_ = None
+        self._never_urls = None
+        self._equivalent_domains = None
+        self._url_rules = None
         self._secrets = self._blob_ = None
         self._logger.info('Retrieving remote blob and decrypting secrets.')
-        _ = self.secrets
+        try:
+            _ = self.secrets
+        except Exception:  # noqa
+            return False
+        return True
 
     def save(self, path='.', name='vault.blob'):
         """Can save the downloaded blob.

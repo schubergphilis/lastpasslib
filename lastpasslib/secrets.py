@@ -627,6 +627,8 @@ SECRET_NOTE_CLASS_MAPPING = {'Address': Address,
                              'Wi-Fi Password': WifiPassword
                              }
 
+SECURE_NOTE_TYPES = [obj.__name__ for obj in SECRET_NOTE_CLASS_MAPPING.values()]
+
 
 class Attachment:
     """Models an attachment of a secret."""
@@ -642,6 +644,11 @@ class Attachment:
     def id(self):
         """ID of the attachment."""
         return self._data.get('id')
+
+    @property
+    def parent_id(self):
+        """ID of the parent secret of the attachment."""
+        return self._data.get('parent_id')
 
     @property
     def mimetype(self):

@@ -41,7 +41,8 @@ from .lastpasslibexceptions import (ApiLimitReached,
                                     MfaRequired,
                                     ServerError,
                                     UnknownUsername,
-                                    UnexpectedResponse)
+                                    UnexpectedResponse,
+                                    InvalidSecretType)
 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
@@ -64,3 +65,4 @@ assert MfaRequired
 assert ServerError
 assert UnknownUsername
 assert UnexpectedResponse
+assert InvalidSecretType

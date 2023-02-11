@@ -72,3 +72,7 @@ class UnknownUsername(Exception):
 
 class UnexpectedResponse(Exception):
     """The response provided does not follow the expected format."""
+
+
+class InvalidSecretType(Exception):
+    """The secret type provided is not a valid one."""
