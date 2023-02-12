@@ -289,6 +289,10 @@ class Lastpass:
         items = response.json().get('response', {}).get('value', {}).get('items', [])
         return [Event(*item.values()) for item in items]
 
+    @property
+    def encrypted_username(self):
+        return self._vault.encrypted_username
+
     def get_secrets(self, filter_=None):
         """Gets secrets from the vault.
 
