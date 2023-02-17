@@ -200,6 +200,25 @@ class EncryptManager:
             raise TypeError(f'Data :{data} could not be decoded by the "hex_codec".') from None
 
     @staticmethod
+    def encode_hex(data):
+        """Encodes a raw bytes string to a hex encoded string.
+
+        Args:
+            data: The data to encode
+
+        Returns:
+            The encoded data on success.
+
+        Raises:
+            TypeError if the encoding is not possible.
+
+        """
+        try:
+            return codecs.encode(data, 'hex_codec')
+        except BinasciiError:
+            raise TypeError(f'Data :{data} could not be encoded by the "hex_codec".') from None
+
+    @staticmethod
     def decrypt_rsa_key(payload, encryption_key):
         """Parse PRIK chunk which contains a private RSA key and decrypt it.
 

@@ -77,6 +77,7 @@ class Vault:
         self._never_urls = None
         self._equivalent_domains = None
         self._url_rules = None
+        self._encrypted_username = None
         self.unable_to_decrypt = []
 
     @property
@@ -122,6 +123,13 @@ class Vault:
         return self._secrets
 
     @property
+    def encrypted_username(self):
+        if self._encrypted_username is None:
+            # parse blob and get secrets and encrypted username
+            _ = self.secrets
+        return self._encrypted_username
+
+    @property
     def _attachments(self):
         if self._attachments_ is None:
             # parse blob and get secrets and attachments
@@ -155,20 +163,29 @@ class Vault:
     def _get_attachments_by_parent_id(self, id_):
         return [attachment for attachment in self._attachments if attachment.get('parent_id') == id_]
 
+    @staticmethod
+    def _get_chunks_by_id(blob, chunk_id):
+        return [chunk for chunk in blob.chunks if chunk.id == chunk_id.encode('utf-8')]
+
+    @staticmethod
+    def _get_chunk_by_id(blob, chunk_id):
+        return next((chunk for chunk in blob.chunks if chunk.id == chunk_id.encode('utf-8')), None)
+
     def decrypt_blob(self, data):  # pylint: disable=too-many-locals
         blob = Blob(data)
         secrets = []
         key = self.key
         rsa_private_key = None
         shared_folder = None
-        attachment_chunks = [chunk for chunk in blob.chunks if chunk.id == b'ATTA']
+        attachment_chunks = Vault._get_chunks_by_id(blob, 'ATTA')
         self._attachments_ = [self._parse_attachment(chunk.payload) for chunk in attachment_chunks]
-        never_urls_chunks = [chunk for chunk in blob.chunks if chunk.id == b'NEVR']
+        never_urls_chunks = Vault._get_chunks_by_id(blob, 'NEVR')
         self._never_urls = [self._parse_never_urls(chunk.payload) for chunk in never_urls_chunks]
-        eqdn_chunks = [chunk for chunk in blob.chunks if chunk.id == b'EQDN']
+        eqdn_chunks = Vault._get_chunks_by_id(blob, 'EQDN')
         self._equivalent_domains = [self._parse_eqdns(chunk.payload) for chunk in eqdn_chunks]
-        urul_chunks = [chunk for chunk in blob.chunks if chunk.id == b'URUL']
+        urul_chunks = Vault._get_chunks_by_id(blob, 'URUL')
         self._url_rules = [self._parse_url_rules(chunk.payload) for chunk in urul_chunks]
+        self._encrypted_username = Vault._get_chunk_by_id(blob, 'ENCU').payload.decode('utf-8')
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
                 try:
@@ -360,6 +377,7 @@ class Vault:
     def refresh(self):
         """Refreshes the vault by cleaning up the encrypted blob and the decrypted secrets and forcing the retrieval."""
         self._logger.info('Cleaning up secrets and blob.')
+        self._encrypted_username = None
         self._attachments_ = None
         self._never_urls = None
         self._equivalent_domains = None

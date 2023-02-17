@@ -76,3 +76,7 @@ class UnexpectedResponse(Exception):
 
 class InvalidSecretType(Exception):
     """The secret type provided is not a valid one."""
+
+
+class MultipleInstances(Exception):
+    """There is more than one item returned."""
