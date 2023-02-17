@@ -49,7 +49,8 @@ from .lastpasslibexceptions import (ApiLimitReached,
                                     ServerError,
                                     UnknownUsername,
                                     UnexpectedResponse,
-                                    InvalidSecretType)
+                                    InvalidSecretType,
+                                    MultipleInstances)
 from .secrets import SECURE_NOTE_TYPES
 from .vault import Vault
 
@@ -291,7 +292,18 @@ class Lastpass:
 
     @property
     def encrypted_username(self):
+        """The encrypted username of the user."""
         return self._vault.encrypted_username
+
+    @property
+    def uid(self):
+        """The uid of lastpass."""
+        return self._authenticated_response_data.get('uid')
+
+    @property
+    def session_id(self):
+        """The session ID."""
+        return self._authenticated_response_data.get('sessionid')
 
     def get_secrets(self, filter_=None):
         """Gets secrets from the vault.
@@ -315,8 +327,57 @@ class Lastpass:
         Returns:
             The secret if a match is found, else None.
 
+        Raises:
+            MultipleInstances: If more than one password is found with the same name.
+
         """
-        return next((secret for secret in self.get_secrets() if secret.name == name), None)
+        secrets = self.get_secrets_by_name(name)
+        if not secrets:
+            return None
+        if len(secrets) > 1:
+            raise MultipleInstances(f'More than one secrets with name {name} exist.')
+        return secrets.pop()
+
+    def get_secrets_by_name(self, name):
+        """Gets secrets from the vault matching a name.
+
+        Args:
+            name: The name to match on, case-sensitive.
+
+        Returns:
+            list: A list of secrets if they match the name, an empty list otherwise.
+
+        """
+        return [secret for secret in self.get_secrets() if secret.name == name]
+
+    def get_secrets_by_group(self, group_name):
+        """Gets secrets from the vault for the specified group.
+
+        Args:
+            group_name: The name to match on, case-sensitive.
+
+        Returns:
+            list: A list of secrets if they match the group name, an empty list otherwise.
+
+        """
+        return [secret for secret in self.get_secrets() if secret.group == group_name]
+
+    def get_secrets_by_shared_folder(self, folder_name):
+        """Gets secrets from the vault for the specified shared folder.
+
+        Args:
+            folder_name: The name to match on, case-sensitive.
+
+        Returns:
+            list: A list of secrets of the shared folder, an empty list otherwise.
+
+        """
+        secrets = []
+        for secret in self.get_secrets():
+            if secret.shared_folder:
+                if secret.shared_folder.name == folder_name:
+                    secrets.append(secret)
+        return secrets
 
     def get_secret_by_id(self, id_):
         """Gets a secret from the vault by id.
