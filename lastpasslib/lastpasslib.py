@@ -338,45 +338,47 @@ class Lastpass:
             raise MultipleInstances(f'More than one secrets with name {name} exist.')
         return secrets.pop()
 
-    def get_secrets_by_name(self, name):
+    def get_secrets_by_name(self, name, filter_=None):
         """Gets secrets from the vault matching a name.
 
         Args:
             name: The name to match on, case-sensitive.
+            filter_: The type of secret to filter on.
 
         Returns:
             list: A list of secrets if they match the name, an empty list otherwise.
 
         """
-        return [secret for secret in self.get_secrets() if secret.name == name]
+        return [secret for secret in self.get_secrets(filter_) if secret.name == name]
 
-    def get_secrets_by_group(self, group_name):
+    def get_secrets_by_group(self, group_name, filter_=None):
         """Gets secrets from the vault for the specified group.
 
         Args:
             group_name: The name to match on, case-sensitive.
+            filter_: The type of secret to filter on.
 
         Returns:
             list: A list of secrets if they match the group name, an empty list otherwise.
 
         """
-        return [secret for secret in self.get_secrets() if secret.group == group_name]
+        return [secret for secret in self.get_secrets(filter_) if secret.group == group_name]
 
-    def get_secrets_by_shared_folder(self, folder_name):
+    def get_secrets_by_shared_folder(self, folder_name, filter_=None):
         """Gets secrets from the vault for the specified shared folder.
 
         Args:
             folder_name: The name to match on, case-sensitive.
+            filter_: The type of secret to filter on.
 
         Returns:
             list: A list of secrets of the shared folder, an empty list otherwise.
 
         """
         secrets = []
-        for secret in self.get_secrets():
-            if secret.shared_folder:
-                if secret.shared_folder.name == folder_name:
-                    secrets.append(secret)
+        for secret in self.get_secrets(filter_):
+            if secret.shared_folder and secret.shared_folder.name == folder_name:
+                secrets.append(secret)
         return secrets
 
     def get_secret_by_id(self, id_):
@@ -450,6 +452,30 @@ class Lastpass:
         """
         return self.get_secrets(filter_='Password')
 
+    def get_passwords_by_group(self, group_name):
+        """Gets passwords from the vault for the specified group.
+
+        Args:
+            group_name: The name to match on, case-sensitive.
+
+        Returns:
+            list: A list of passwords if they match the group name, an empty list otherwise.
+
+        """
+        return self.get_secrets_by_group(group_name, filter_='Password')
+
+    def get_passwords_by_shared_folder(self, folder_name):
+        """Gets passwords from the vault for the specified shared folder.
+
+        Args:
+            folder_name: The name to match on, case-sensitive.
+
+        Returns:
+            list: A list of passwords of the shared folder, an empty list otherwise.
+
+        """
+        return self.get_secrets_by_shared_folder(folder_name, filter_='Password')
+
     def get_passwords_with_attachments(self):
         """Gets passwords with attachments.
 
@@ -467,6 +493,30 @@ class Lastpass:
 
         """
         return self.get_secrets(filter_=SECURE_NOTE_TYPES)
+
+    def get_secure_notes_by_group(self, group_name):
+        """Gets secure notes from the vault for the specified group.
+
+        Args:
+            group_name: The name to match on, case-sensitive.
+
+        Returns:
+            list: A list of secure notes if they match the group name, an empty list otherwise.
+
+        """
+        return self.get_secrets_by_group(group_name, filter_=SECURE_NOTE_TYPES)
+
+    def get_secure_notes_by_shared_folder(self, folder_name):
+        """Gets secure notes from the vault for the specified shared folder.
+
+        Args:
+            folder_name: The name to match on, case-sensitive.
+
+        Returns:
+            list: A list of secure notes of the shared folder, an empty list otherwise.
+
+        """
+        return self.get_secrets_by_shared_folder(folder_name, filter_=SECURE_NOTE_TYPES)
 
     def get_secure_notes_with_attachments(self):
         """Gets secure notes with attachments.
