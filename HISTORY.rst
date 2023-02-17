@@ -19,3 +19,9 @@ History
 ------------------
 
 * Implement retrieving secrets by group and shared folder.
+
+
+0.3.0 (17-02-2023)
+------------------
+
+* Implement friendly interface to retrieve passwords and secure notes by group and shared folder.
