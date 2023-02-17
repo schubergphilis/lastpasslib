@@ -13,3 +13,9 @@ History
 ------------------
 
 * Initial release
+
+
+0.2.0 (17-02-2023)
+------------------
+
+* Implement retrieving secrets by group and shared folder.
