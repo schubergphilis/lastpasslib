@@ -25,3 +25,9 @@ History
 ------------------
 
 * Implement friendly interface to retrieve passwords and secure notes by group and shared folder.
+
+
+0.4.0 (19-02-2023)
+------------------
+
+* Implement folder grouping and retrieval.
