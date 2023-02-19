@@ -33,6 +33,7 @@ Main code for lastpasslib.
 
 import datetime
 import logging
+from collections import defaultdict
 from xml.etree import ElementTree as Etree
 from xml.etree.ElementTree import ParseError
 
@@ -41,7 +42,7 @@ import requests
 from dateutil.parser import parse
 from requests import Session
 
-from .datamodels import Event, SharedFolder, CompanyUser
+from .datamodels import Event, SharedFolder, CompanyUser, Folder
 from .lastpasslibexceptions import (ApiLimitReached,
                                     InvalidMfa,
                                     InvalidPassword,
@@ -210,6 +211,18 @@ class Lastpass:
 
         """
         return next((folder for folder in self.shared_folders if folder.id == id_), None)
+
+    @property
+    def folders(self):
+        """A list of folders of lastpass exposing all their member secrets."""
+        groups = defaultdict(list)
+        for secret in self.get_secrets():
+            groups[secret.group].append(secret)
+        return [Folder(name, secrets) for name, secrets in groups.items()]
+
+    def get_folder_by_name(self, name):
+        """Gets a folder by name."""
+        return next((folder for folder in self.folders if folder.name == name), None)
 
     def get_login_history_by_date(self, start_date=None, end_date=None):
         """Get login history events by a range of dates.
@@ -555,7 +568,7 @@ class Lastpass:
     @staticmethod
     def _validate_filter(filter_):
         all_types = SECURE_NOTE_TYPES + ['Password']
-        filter_ = filter_ if filter_ else all_types
+        filter_ = filter_ or all_types
         if not isinstance(filter_, (tuple, list)):
             filter_ = [filter_]
         diff = set(filter_) - set(all_types)
