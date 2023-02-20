@@ -128,6 +128,15 @@ class Lastpass:
         return self._authenticated_response_data.get('token')
 
     @property
+    def csrf_token(self):
+        """The csrf token required for some calls."""
+        url = f'{self.host}/getCSRFToken.php'
+        response = self.session.post(url, data='')
+        if not response.ok:
+            response.raise_for_status()
+        return response.text
+
+    @property
     def iteration_count(self):
         """The iteration count of the encryption for the vault."""
         if self._iteration_count is None:
@@ -159,6 +168,7 @@ class Lastpass:
                 'yubikeyrestricted': InvalidMfa,
             }
             exception = exceptions.get(error.attrib.get('cause'), ServerError)
+            LOGGER.error(f'Got a server error :{error.attrib.get("cause")}')
             raise exception(error.attrib.get('message'))
         return parsed_response
 

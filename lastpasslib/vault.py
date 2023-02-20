@@ -43,7 +43,7 @@ from binascii import hexlify
 from .datamodels import NeverUrl, EquivalentDomain, UrlRule
 from .dataschemas import SecretSchema, SharedFolderSchema, AttachmentSchema
 from .encryption import Blob, EncryptManager, Stream
-from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom
+from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom, Folder
 
 LOGGER_BASENAME = 'vault'
 LOGGER = logging.getLogger(LOGGER_BASENAME)
@@ -79,6 +79,7 @@ class Vault:
         self._url_rules = None
         self._encrypted_username = None
         self.unable_to_decrypt = []
+        self._folders = []
 
     @property
     def key(self):
@@ -191,6 +192,8 @@ class Vault:
                 try:
                     class_type, data = self._parse_secret(chunk.payload, key)
                     secret = class_type(self._lastpass, data, shared_folder)
+                    if class_type is Folder:
+                        self._folders.append(secret)
                     if secret.has_attachment:
                         for attachment_data in self._get_attachments_by_parent_id(secret.id):
                             attachment_data['decryption_key'] = secret.attachment_encryption_key
@@ -289,8 +292,15 @@ class Vault:
                                                      secret.boolean_values,
                                                      lambda x: bool(int(x))))
         data['encryption_key'] = encryption_key
-        class_type, data = Vault._parse_secure_note(data) if data.get('is_secure_note') else (Password, data)
-        return class_type, data
+        if data.get('is_secure_note'):
+            return Vault._parse_secure_note(data)
+        if all([not any([data.get('username'),
+                         data.get('password'),
+                         data.get('name'),
+                         data.get('notes')]),
+                data.get('url') == 'http://group']):
+            return Folder, data
+        return Password, data
 
     @staticmethod
     def _get_attribute_payload_data(stream, attributes):

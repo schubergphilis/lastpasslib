@@ -204,6 +204,18 @@ class Secret:
                                       for action in actions]
         return self._shared_to_people
 
+    @property
+    def url(self):
+        """The url of the secret."""
+        return self._data.get('url')
+
+
+class Folder(Secret):
+
+    @property
+    def name(self):
+        return self.group
+
 
 class Password(Secret):
     """Models a password and exposes appropriate attributes."""
@@ -248,11 +260,6 @@ class Password(Secret):
     def password(self):
         """The password field of the password."""
         return self._data.get('password')
-
-    @property
-    def url(self):
-        """The url of the password."""
-        return self._data.get('url')
 
     @property
     def username(self):
