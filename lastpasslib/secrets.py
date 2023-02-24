@@ -313,6 +313,10 @@ class Password(Secret):
         except IndexError:
             return None
 
+    @property
+    def secret_updated_datetime(self):
+        return self.last_password_change_datetime
+
 
 class SecureNote(Secret):
     """Models a secure note."""
@@ -329,6 +333,10 @@ class SecureNote(Secret):
                 # cannot be set but the value will be exposed by the parent secret class attribute.
                 pass
         self._history = None
+
+    @property
+    def secret_updated_datetime(self):
+        return self.last_modified_datetime
 
     @property
     def history(self):
