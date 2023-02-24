@@ -37,3 +37,9 @@ History
 ------------------
 
 * Implement folder filtering out on secret parsing.
+
+
+0.6.0 (24-02-2023)
+------------------
+
+* Implement a consistent interface for update datetime reporting.
