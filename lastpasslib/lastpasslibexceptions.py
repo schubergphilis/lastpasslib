@@ -80,3 +80,7 @@ class InvalidSecretType(Exception):
 
 class MultipleInstances(Exception):
     """There is more than one item returned."""
+
+
+class UnknownIP(Exception):
+    """The ip of the connection is not know to the service."""

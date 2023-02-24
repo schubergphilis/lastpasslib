@@ -214,11 +214,3 @@ class ShareAction:
     def given(self):
         """Boolean of the given status of the share."""
         return bool(int(self.give))
-
-
-@dataclass
-class Folder:
-    """Models data of folder."""
-
-    name: str
-    secrets: list

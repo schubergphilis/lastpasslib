@@ -492,7 +492,7 @@ class HealthInsurance(SecureNote):
                          'Company Phone': 'company_phone',
                          'Policy Type': 'policy_type',
                          'Policy Number': 'policy_number',
-                         'Group ID': 'group_id',
+                         'Group ID': 'insurance_group_id',
                          'Member Name': 'member_name',
                          'Member ID': 'member_id',
                          'Physician Name': 'physician_name',

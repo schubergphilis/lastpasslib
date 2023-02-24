@@ -79,7 +79,6 @@ class Vault:
         self._url_rules = None
         self._encrypted_username = None
         self.unable_to_decrypt = []
-        self._folders = []
 
     @property
     def key(self):
@@ -191,21 +190,25 @@ class Vault:
             if chunk.id == b'ACCT':
                 try:
                     class_type, data = self._parse_secret(chunk.payload, key)
-                    secret = class_type(self._lastpass, data, shared_folder)
                     if class_type is Folder:
-                        self._folders.append(secret)
+                        # We disregard folder objects as they are not needed since they are referenced as a group from
+                        # each secret, so they can be deducted and if the path was specified directly via the password
+                        # creation form as new parent folders they are not actually created as entries but are rendered
+                        # only on the UI.
+                        continue
+                    secret = class_type(self._lastpass, data, shared_folder)
                     if secret.has_attachment:
                         for attachment_data in self._get_attachments_by_parent_id(secret.id):
                             attachment_data['decryption_key'] = secret.attachment_encryption_key
                             attachment = Attachment(self._lastpass, attachment_data)
                             secret.add_attachment(attachment)
+                    secrets.append(secret)
                 # We want to skip any possible error so the process completes and we gather the errors so they can be
                 # troubleshot
                 except Exception:  # noqa
                     self._logger.exception('Unable to decrypt chunk, adding to the error list.')
                     self.unable_to_decrypt.append((chunk, key))
                     continue
-                secrets.append(secret)
             elif chunk.id == b'PRIK':
                 rsa_private_key = EncryptManager.decrypt_rsa_key(chunk.payload, self.key)
             elif chunk.id == b'SHAR':

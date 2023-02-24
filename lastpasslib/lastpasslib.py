@@ -33,7 +33,6 @@ Main code for lastpasslib.
 
 import datetime
 import logging
-from collections import defaultdict
 from xml.etree import ElementTree as Etree
 from xml.etree.ElementTree import ParseError
 
@@ -42,7 +41,7 @@ import requests
 from dateutil.parser import parse
 from requests import Session
 
-from .datamodels import Event, SharedFolder, CompanyUser, Folder
+from .datamodels import Event, SharedFolder, CompanyUser
 from .lastpasslibexceptions import (ApiLimitReached,
                                     InvalidMfa,
                                     InvalidPassword,
@@ -51,7 +50,8 @@ from .lastpasslibexceptions import (ApiLimitReached,
                                     UnknownUsername,
                                     UnexpectedResponse,
                                     InvalidSecretType,
-                                    MultipleInstances)
+                                    MultipleInstances,
+                                    UnknownIP)
 from .secrets import SECURE_NOTE_TYPES
 from .vault import Vault
 
@@ -166,6 +166,7 @@ class Lastpass:
                 'googleauthfailed': InvalidMfa,
                 'microsoftauthfailed': InvalidMfa,
                 'yubikeyrestricted': InvalidMfa,
+                'unifiedloginresult': UnknownIP
             }
             exception = exceptions.get(error.attrib.get('cause'), ServerError)
             LOGGER.error(f'Got a server error :{error.attrib.get("cause")}')
@@ -225,10 +226,17 @@ class Lastpass:
     @property
     def folders(self):
         """A list of folders of lastpass exposing all their member secrets."""
-        groups = defaultdict(list)
-        for secret in self.get_secrets():
-            groups[secret.group].append(secret)
-        return [Folder(name, secrets) for name, secrets in groups.items()]
+        # shared_folders = defaultdict(list)
+        # folders = defaultdict(list)
+        # personal_folders = defaultdict(list)
+        # for secret in self.get_secrets():
+        #     if secret._data.get('group_id'):
+        #         personal_folders[secret.group].append(secret)
+        #     elif secret.shared_folder:
+        #         shared_folders[secret.shared_folder.name].append(secret)
+        # return personal_folders, shared_folders
+        # # return [Folder(name, secrets) for name, secrets in groups.items()]
+        raise NotImplementedError('Folder hierarchy is still not fully implemented.')
 
     def get_folder_by_name(self, name):
         """Gets a folder by name."""
