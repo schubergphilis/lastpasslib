@@ -102,6 +102,11 @@ class Secret:
         return self._data.get('group')
 
     @property
+    def group_id(self):
+        """Group id of the secret."""
+        return self._data.get('group_id')
+
+    @property
     def has_attachment(self):
         """Flag of whether the secret has attachments."""
         return bool(self._data.get('has_attachment'))

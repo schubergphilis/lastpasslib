@@ -31,7 +31,7 @@ Main code for datamodels.
 
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from dateutil.parser import parse
 
@@ -214,3 +214,32 @@ class ShareAction:
     def given(self):
         """Boolean of the given status of the share."""
         return bool(int(self.give))
+
+
+@dataclass
+class Folder:
+    name: str
+    path: tuple
+    parent: 'Folder' = None
+    folders: list = field(default_factory=list)
+    secrets: list = field(default_factory=list)
+
+    @property
+    def full_path(self):
+        return '\\'.join(self._full_path)
+
+    @property
+    def is_in_root(self):
+        return len(self._full_path) == 1
+
+    def add_secret(self, secret):
+        self.secrets.append(secret)
+
+    def add_secrets(self, secrets):
+        self.secrets.extend(secrets)
+
+    def add_folder(self, folder):
+        self.folders.append(folder)
+
+    def add_folders(self, folders):
+        self.folders.extend(folders)

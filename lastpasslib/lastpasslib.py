@@ -33,6 +33,7 @@ Main code for lastpasslib.
 
 import datetime
 import logging
+from collections import defaultdict
 from xml.etree import ElementTree as Etree
 from xml.etree.ElementTree import ParseError
 
@@ -41,7 +42,7 @@ import requests
 from dateutil.parser import parse
 from requests import Session
 
-from .datamodels import Event, SharedFolder, CompanyUser
+from .datamodels import Event, SharedFolder, CompanyUser, Folder
 from .lastpasslibexceptions import (ApiLimitReached,
                                     InvalidMfa,
                                     InvalidPassword,
@@ -85,6 +86,7 @@ class Lastpass:
         self.session = self._get_authenticated_session(username, mfa)
         self._monkey_patch_session()
         self._shared_folders = None
+        self._folders = None
 
     def _monkey_patch_session(self):
         """Gets original request method and overrides it with the patched one.
@@ -222,25 +224,6 @@ class Lastpass:
 
         """
         return next((folder for folder in self.shared_folders if folder.id == id_), None)
-
-    @property
-    def folders(self):
-        """A list of folders of lastpass exposing all their member secrets."""
-        # shared_folders = defaultdict(list)
-        # folders = defaultdict(list)
-        # personal_folders = defaultdict(list)
-        # for secret in self.get_secrets():
-        #     if secret._data.get('group_id'):
-        #         personal_folders[secret.group].append(secret)
-        #     elif secret.shared_folder:
-        #         shared_folders[secret.shared_folder.name].append(secret)
-        # return personal_folders, shared_folders
-        # # return [Folder(name, secrets) for name, secrets in groups.items()]
-        raise NotImplementedError('Folder hierarchy is still not fully implemented.')
-
-    def get_folder_by_name(self, name):
-        """Gets a folder by name."""
-        return next((folder for folder in self.folders if folder.name == name), None)
 
     def get_login_history_by_date(self, start_date=None, end_date=None):
         """Get login history events by a range of dates.
@@ -628,3 +611,78 @@ class Lastpass:
 
     def __del__(self):
         return self.logout()
+
+    def _parse_folder_groups(self):
+        root_folder = {'\\': []}
+        personal_folders = defaultdict(list)
+        temp_shared_folders = defaultdict(lambda: defaultdict(list))
+        for secret in self.get_secrets():
+            split_path = tuple(secret.group.split('\\'))
+            if secret.group_id:
+                personal_folders[split_path].append(secret)
+            elif secret.shared_folder:
+                temp_shared_folders[secret.shared_folder.shared_name][split_path].append(secret)
+            else:
+                root_folder['\\'].append(secret)
+        return root_folder, personal_folders, temp_shared_folders
+
+    @staticmethod
+    def _get_parent_folder(folder, folders):
+        return next((parent_folder for parent_folder in folders
+                     if all([folder.path[-2] == parent_folder.name,  # noqa
+                             tuple(folder.path[:-1]) == parent_folder.path])), None)  # noqa
+
+    def _get_folder_objects(self, folder_by_path, root_folder=None):
+        folder_objects = []
+        for folder, secrets in sorted(folder_by_path.items()):
+            folder = Folder(folder[-1], folder)
+            folder.secrets.extend(secrets)
+            if len(folder.path) > 1:  #
+                folder_parent = self._get_parent_folder(folder, folder_objects)
+                if not folder_parent:
+                    folder_parent = Folder(folder.path[-2], tuple(folder.path[:-1]))
+                    parent_folder = self._get_parent_folder(folder_parent, folder_objects)
+                    if not parent_folder:
+                        continue
+                    parent_folder.folders.append(folder_parent)
+                    folder_parent.parent = parent_folder
+                    folder_objects.append(folder_parent)
+                folder.parent = folder_parent
+                folder_parent.folders.append(folder)
+            else:
+                if root_folder:
+                    folder.parent = root_folder
+                    root_folder.folders.append(folder)
+            folder_objects.append(folder)
+        return folder_objects
+
+    @staticmethod
+    def _get_shared_folder_objects(folder_name, folders):
+        root_secrets = folders.get(('',), [])
+        if root_secrets:
+            del folders[('',)]
+        folders = {(folder_name,) + folder: secrets for folder, secrets in folders.items()}
+        folders.update({(folder_name,): root_secrets})
+        return folders
+
+    def get_folder_by_name(self, name):
+        folders = [folder for folder in self.folders if folder.name == name]
+        if not folders:
+            return folders
+        if len(folders) > 1:
+            raise MultipleInstances(f'multiple instances of {name} found')
+        return folders.pop()
+
+    @property
+    def folders(self):
+        if self._folders is None:
+            root_folder_data, personal_folders, shared_folders = self._parse_folder_groups()
+            root_folder = Folder('\\', ('\\',))
+            root_folder.secrets.extend(root_folder_data.get('\\'))
+            all_folders = [root_folder]
+            all_folders.extend(self._get_folder_objects(personal_folders, root_folder))
+            for name, folders in shared_folders.items():
+                shared_folder = self._get_shared_folder_objects(name, folders)
+                all_folders.extend(self._get_folder_objects(shared_folder, root_folder))
+            self._folders = all_folders
+        return self._folders
