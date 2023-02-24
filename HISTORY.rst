@@ -31,3 +31,9 @@ History
 ------------------
 
 * Implement folder grouping and retrieval.
+
+
+0.5.0 (24-02-2023)
+------------------
+
+* Implement folder filtering out on secret parsing.
