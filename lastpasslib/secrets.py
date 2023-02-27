@@ -215,7 +215,7 @@ class Secret:
         return self._data.get('url')
 
 
-class Folder(Secret):
+class FolderEntry(Secret):
 
     @property
     def name(self):
