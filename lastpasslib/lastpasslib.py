@@ -319,6 +319,133 @@ class Lastpass:
         """The session ID."""
         return self._authenticated_response_data.get('sessionid')
 
+    @staticmethod
+    def _parse_folder_groups(secrets):
+        """Parses all folder structures by iterating over all secrets.
+
+        There are three levels of folders. One is the root one that could hold parentless secrets, the second is the
+        personal folders that only exist for the user and the third is the shared folders that are shared.
+
+        Args:
+            secrets: All the secrets to iterate over and deduct their directory structure.
+
+        Returns:
+            tuple: Data for the root folder, the personal folders and the shared folders.
+
+        """
+        root_folder_data = {'\\': []}
+        personal_folders_data = defaultdict(list)
+        shared_folders_data = defaultdict(lambda: defaultdict(list))
+        for secret in secrets:
+            split_path = tuple(secret.group.split('\\'))
+            if secret.group_id:
+                personal_folders_data[split_path].append(secret)
+            elif secret.shared_folder:
+                shared_folders_data[secret.shared_folder.shared_name][split_path].append(secret)
+            else:
+                root_folder_data['\\'].append(secret)
+        return root_folder_data, personal_folders_data, shared_folders_data
+
+    @staticmethod
+    def _get_parent_folder(folder, folders):
+        """Tries to identify the parent folder of a provided folder and return that from a list of folders.
+
+        Args:
+            folder: The folder to look the parent for.
+            folders: A list of all the folders.
+
+        Returns:
+            The parent folder of the mentioned folder if a match is found, else None.
+
+        """
+        return next((parent_folder for parent_folder in folders
+                     if tuple(folder.path[:-1]) == parent_folder.path), None)  # noqa
+
+    def _get_folder_objects(self, secrets_by_path, root_folder=None):
+        folder_objects = []
+        for folder_path, secrets in sorted(secrets_by_path.items()):
+            folder = Folder(folder_path[-1], folder_path)
+            folder.add_secrets(secrets)
+            if len(folder.path) > 1:  #
+                folder_parent = self._get_parent_folder(folder, folder_objects)
+                if not folder_parent:
+                    folder_parent = Folder(folder.path[-2], tuple(folder.path[:-1]))
+                    parent_folder = self._get_parent_folder(folder_parent, folder_objects)
+                    if not parent_folder:
+                        continue
+                    parent_folder.add_folder(folder_parent)
+                    folder_parent.parent = parent_folder
+                    folder_objects.append(folder_parent)
+                folder.parent = folder_parent
+                folder_parent.add_folder(folder)
+            else:
+                if root_folder:
+                    folder.parent = root_folder
+                    root_folder.add_folder(folder)
+            folder_objects.append(folder)
+        return folder_objects
+
+    @staticmethod
+    def _get_shared_folder_objects(folder_name, folders):
+        """Normalises the folder structure of a shared folder.
+
+         Prepends the shared folder name in the path of all the children folders making the structure one level less.
+
+        Args:
+            folder_name: The name of the shared folder.
+            folders: The list of all folders.
+
+        Returns:
+            A new structure for all children folders of a shared folder with the shared folder name part of their path.
+
+        """
+        root_secrets = folders.get(('',), [])
+        if root_secrets:
+            del folders[('',)]
+        folders = {(folder_name,) + folder: secrets for folder, secrets in folders.items()}
+        folders.update({(folder_name,): root_secrets})
+        return folders
+
+    def get_folder_by_name(self, name):
+        """Gets a folder by name.
+
+        Args:
+            name: The name of the folder to match.
+
+        Returns:
+            The folder it matched on if there is one match only, None if no match found.
+
+        Raises:
+            MultipleInstances: If there is more than one match with the same name.
+
+        """
+        folders = [folder for folder in self.folders if folder.name == name]
+        if not folders:
+            return folders
+        if len(folders) > 1:
+            raise MultipleInstances(f'multiple instances of {name} found')
+        return folders.pop()
+
+    @property
+    def folders(self):
+        """All the folders of the vault.
+
+        Returns:
+            A list of all the secrets of the vault.
+
+        """
+        if self._folders is None:
+            root_folder_data, personal_folders, shared_folders = self._parse_folder_groups(self.get_secrets())
+            root_folder = Folder('\\', ('\\',))
+            root_folder.secrets.extend(root_folder_data.get('\\'))
+            all_folders = [root_folder]
+            all_folders.extend(self._get_folder_objects(personal_folders, root_folder))
+            for name, folders in shared_folders.items():
+                shared_folder = self._get_shared_folder_objects(name, folders)
+                all_folders.extend(self._get_folder_objects(shared_folder, root_folder))
+            self._folders = all_folders
+        return self._folders
+
     def get_secrets(self, filter_=None):
         """Gets secrets from the vault.
 

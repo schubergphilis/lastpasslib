@@ -341,7 +341,7 @@ class SecureNote(Secret):
 
     @property
     def secret_updated_datetime(self):
-        return self.last_modified_datetime
+        return self.last_modified_datetime if not hasattr(self, 'password') else self.last_password_change_datetime
 
     @property
     def history(self):
