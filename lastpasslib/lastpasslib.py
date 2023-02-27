@@ -613,30 +613,29 @@ class Lastpass:
         return self.logout()
 
     def _parse_folder_groups(self):
-        root_folder = {'\\': []}
-        personal_folders = defaultdict(list)
-        temp_shared_folders = defaultdict(lambda: defaultdict(list))
+        root_folder_data = {'\\': []}
+        personal_folders_data = defaultdict(list)
+        shared_folders_data = defaultdict(lambda: defaultdict(list))
         for secret in self.get_secrets():
             split_path = tuple(secret.group.split('\\'))
             if secret.group_id:
-                personal_folders[split_path].append(secret)
+                personal_folders_data[split_path].append(secret)
             elif secret.shared_folder:
-                temp_shared_folders[secret.shared_folder.shared_name][split_path].append(secret)
+                shared_folders_data[secret.shared_folder.shared_name][split_path].append(secret)
             else:
-                root_folder['\\'].append(secret)
-        return root_folder, personal_folders, temp_shared_folders
+                root_folder_data['\\'].append(secret)
+        return root_folder_data, personal_folders_data, shared_folders_data
 
     @staticmethod
     def _get_parent_folder(folder, folders):
         return next((parent_folder for parent_folder in folders
-                     if all([folder.path[-2] == parent_folder.name,  # noqa
-                             tuple(folder.path[:-1]) == parent_folder.path])), None)  # noqa
+                     if tuple(folder.path[:-1]) == parent_folder.path), None)  # noqa
 
-    def _get_folder_objects(self, folder_by_path, root_folder=None):
+    def _get_folder_objects(self, secrets_by_path, root_folder=None):
         folder_objects = []
-        for folder, secrets in sorted(folder_by_path.items()):
-            folder = Folder(folder[-1], folder)
-            folder.secrets.extend(secrets)
+        for folder_path, secrets in sorted(secrets_by_path.items()):
+            folder = Folder(folder_path[-1], folder_path)
+            folder.add_secrets(secrets)
             if len(folder.path) > 1:  #
                 folder_parent = self._get_parent_folder(folder, folder_objects)
                 if not folder_parent:
@@ -644,15 +643,15 @@ class Lastpass:
                     parent_folder = self._get_parent_folder(folder_parent, folder_objects)
                     if not parent_folder:
                         continue
-                    parent_folder.folders.append(folder_parent)
+                    parent_folder.add_folder(folder_parent)
                     folder_parent.parent = parent_folder
                     folder_objects.append(folder_parent)
                 folder.parent = folder_parent
-                folder_parent.folders.append(folder)
+                folder_parent.add_folder(folder)
             else:
                 if root_folder:
                     folder.parent = root_folder
-                    root_folder.folders.append(folder)
+                    root_folder.add_folder(folder)
             folder_objects.append(folder)
         return folder_objects
 

@@ -226,11 +226,11 @@ class Folder:
 
     @property
     def full_path(self):
-        return '\\'.join(self._full_path)
+        return '\\'.join(self.path)
 
     @property
     def is_in_root(self):
-        return len(self._full_path) == 1
+        return len(self.path) == 1
 
     def add_secret(self, secret):
         self.secrets.append(secret)
