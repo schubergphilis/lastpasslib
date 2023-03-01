@@ -493,7 +493,7 @@ class Lastpass:
             list: A list of secrets matching the filter or all secrets of the vault.
 
         """
-        filter_ = Lastpass._validate_filter(filter_)
+        filter_ = self._validate_filter(filter_)
         return [secret for secret in self._vault.secrets if secret.type in filter_]
 
     def get_secret_by_name(self, name):
@@ -553,11 +553,8 @@ class Lastpass:
             list: A list of secrets of the shared folder, an empty list otherwise.
 
         """
-        secrets = []
-        for secret in self.get_secrets(filter_):
-            if secret.shared_folder and secret.shared_folder.name == folder_name:
-                secrets.append(secret)
-        return secrets
+        return [secret for secret in self.get_secrets(filter_)
+                if secret.shared_folder and secret.shared_folder.name == folder_name]
 
     def get_secret_by_id(self, id_):
         """Gets a secret from the vault by id.
