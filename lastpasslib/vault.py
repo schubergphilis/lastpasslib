@@ -215,7 +215,7 @@ class Vault:
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
                 data = self._parse_shared_folder(chunk.payload, self.key, rsa_private_key)
-                shared_folder = self._lastpass.get_shared_folder_by_id(data.get('id'))
+                shared_folder = self._lastpass._get_shared_folder_by_id(data.get('id'))
                 shared_folder.shared_name = data.get('name')
                 key = data.get('key')
         return secrets

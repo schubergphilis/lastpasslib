@@ -223,6 +223,7 @@ class Folder:
     parent: 'Folder' = None
     folders: list = field(default_factory=list)
     secrets: list = field(default_factory=list)
+    is_personal: bool = False
 
     @property
     def full_path(self):
