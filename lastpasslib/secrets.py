@@ -102,6 +102,11 @@ class Secret:
         return self._data.get('group')
 
     @property
+    def group_id(self):
+        """Group id of the secret."""
+        return self._data.get('group_id')
+
+    @property
     def has_attachment(self):
         """Flag of whether the secret has attachments."""
         return bool(self._data.get('has_attachment'))
@@ -210,7 +215,7 @@ class Secret:
         return self._data.get('url')
 
 
-class Folder(Secret):
+class FolderEntry(Secret):
 
     @property
     def name(self):
@@ -336,7 +341,7 @@ class SecureNote(Secret):
 
     @property
     def secret_updated_datetime(self):
-        return self.last_modified_datetime
+        return self.last_modified_datetime if not hasattr(self, 'password') else self.last_password_change_datetime
 
     @property
     def history(self):

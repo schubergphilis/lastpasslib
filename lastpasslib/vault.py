@@ -43,7 +43,7 @@ from binascii import hexlify
 from .datamodels import NeverUrl, EquivalentDomain, UrlRule
 from .dataschemas import SecretSchema, SharedFolderSchema, AttachmentSchema
 from .encryption import Blob, EncryptManager, Stream
-from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom, Folder
+from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom, FolderEntry
 
 LOGGER_BASENAME = 'vault'
 LOGGER = logging.getLogger(LOGGER_BASENAME)
@@ -190,7 +190,7 @@ class Vault:
             if chunk.id == b'ACCT':
                 try:
                     class_type, data = self._parse_secret(chunk.payload, key)
-                    if class_type is Folder:
+                    if class_type is FolderEntry:
                         # We disregard folder objects as they are not needed since they are referenced as a group from
                         # each secret, so they can be deducted and if the path was specified directly via the password
                         # creation form as new parent folders they are not actually created as entries but are rendered
@@ -215,7 +215,7 @@ class Vault:
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
                 data = self._parse_shared_folder(chunk.payload, self.key, rsa_private_key)
-                shared_folder = self._lastpass.get_shared_folder_by_id(data.get('id'))
+                shared_folder = self._lastpass._get_shared_folder_by_id(data.get('id'))
                 shared_folder.shared_name = data.get('name')
                 key = data.get('key')
         return secrets
@@ -302,7 +302,7 @@ class Vault:
                          data.get('name'),
                          data.get('notes')]),
                 data.get('url') == 'http://group']):
-            return Folder, data
+            return FolderEntry, data
         return Password, data
 
     @staticmethod

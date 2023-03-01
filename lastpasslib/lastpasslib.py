@@ -33,6 +33,7 @@ Main code for lastpasslib.
 
 import datetime
 import logging
+from collections import defaultdict
 from xml.etree import ElementTree as Etree
 from xml.etree.ElementTree import ParseError
 
@@ -41,7 +42,7 @@ import requests
 from dateutil.parser import parse
 from requests import Session
 
-from .datamodels import Event, SharedFolder, CompanyUser
+from .datamodels import Event, SharedFolder, CompanyUser, Folder
 from .lastpasslibexceptions import (ApiLimitReached,
                                     InvalidMfa,
                                     InvalidPassword,
@@ -84,7 +85,8 @@ class Lastpass:
         self._authenticated_response_data = None
         self.session = self._get_authenticated_session(username, mfa)
         self._monkey_patch_session()
-        self._shared_folders = None
+        self._shared_folders_ = None
+        self._folders = None
 
     def _monkey_patch_session(self):
         """Gets original request method and overrides it with the patched one.
@@ -195,9 +197,9 @@ class Lastpass:
         return session
 
     @property
-    def shared_folders(self):
+    def _shared_folders(self):
         """A list of the shared folders of lastpass."""
-        if self._shared_folders is None:
+        if self._shared_folders_ is None:
             url = f'{self.host}/getSharedFolderInfo.php'
             data = {'lpversion': '4.0',
                     'method': 'web',
@@ -205,11 +207,11 @@ class Lastpass:
             response = self.session.post(url, data=data)
             if not response.ok:
                 response.raise_for_status()
-            self._shared_folders = [SharedFolder(*data.values()) for data in response.json().get('folders')]
+            self._shared_folders_ = [SharedFolder(*data.values()) for data in response.json().get('folders')]
             # response.json().get('superusers') exposes a {uid: , key:} dictionary of superusers.
-        return self._shared_folders
+        return self._shared_folders_
 
-    def get_shared_folder_by_id(self, id_):
+    def _get_shared_folder_by_id(self, id_):
         """Gets a shared folder by id.
 
         Used to connect the shared folders with the appropriate secrets in the decryption process of the vault.
@@ -221,26 +223,7 @@ class Lastpass:
             A shared folder object if a match is found, else None
 
         """
-        return next((folder for folder in self.shared_folders if folder.id == id_), None)
-
-    @property
-    def folders(self):
-        """A list of folders of lastpass exposing all their member secrets."""
-        # shared_folders = defaultdict(list)
-        # folders = defaultdict(list)
-        # personal_folders = defaultdict(list)
-        # for secret in self.get_secrets():
-        #     if secret._data.get('group_id'):
-        #         personal_folders[secret.group].append(secret)
-        #     elif secret.shared_folder:
-        #         shared_folders[secret.shared_folder.name].append(secret)
-        # return personal_folders, shared_folders
-        # # return [Folder(name, secrets) for name, secrets in groups.items()]
-        raise NotImplementedError('Folder hierarchy is still not fully implemented.')
-
-    def get_folder_by_name(self, name):
-        """Gets a folder by name."""
-        return next((folder for folder in self.folders if folder.name == name), None)
+        return next((folder for folder in self._shared_folders if folder.id == id_), None)
 
     def get_login_history_by_date(self, start_date=None, end_date=None):
         """Get login history events by a range of dates.
@@ -335,6 +318,169 @@ class Lastpass:
     def session_id(self):
         """The session ID."""
         return self._authenticated_response_data.get('sessionid')
+
+    @staticmethod
+    def _parse_folder_groups(secrets):
+        """Parses all folder structures by iterating over all secrets.
+
+        There are three levels of folders. One is the root one that could hold parentless secrets, the second is the
+        personal folders that only exist for the user and the third is the shared folders that are shared.
+
+        Args:
+            secrets: All the secrets to iterate over and deduct their directory structure.
+
+        Returns:
+            tuple: Data for the root folder, the personal folders and the shared folders.
+
+        """
+        root_folder_data = {'\\': []}
+        personal_folders_data = defaultdict(list)
+        shared_folders_data = defaultdict(lambda: defaultdict(list))
+        for secret in secrets:
+            split_path = tuple(secret.group.split('\\'))
+            if secret.group_id:
+                personal_folders_data[split_path].append(secret)
+            elif secret.shared_folder:
+                shared_folders_data[secret.shared_folder.shared_name][split_path].append(secret)
+            else:
+                root_folder_data['\\'].append(secret)
+        return root_folder_data, personal_folders_data, shared_folders_data
+
+    @staticmethod
+    def _get_parent_folder(folder, folders):
+        """Tries to identify the parent folder of a provided folder and return that from a list of folders.
+
+        Args:
+            folder: The folder to look the parent for.
+            folders: A list of all the folders.
+
+        Returns:
+            The parent folder of the mentioned folder if a match is found, else None.
+
+        """
+        return next((parent_folder for parent_folder in folders
+                     if tuple(folder.path[:-1]) == parent_folder.path), None)  # noqa
+
+    def _get_folder_objects(self, secrets_by_path, root_folder=None, is_personal=False):
+        folder_objects = []
+        for folder_path, secrets in sorted(secrets_by_path.items()):
+            folder = Folder(folder_path[-1], folder_path, is_personal=is_personal)
+            folder.add_secrets(secrets)
+            if len(folder.path) > 1:  #
+                folder_parent = self._get_parent_folder(folder, folder_objects)
+                if not folder_parent:
+                    folder_parent = Folder(folder.path[-2], tuple(folder.path[:-1]), is_personal=is_personal)
+                    parent_folder = self._get_parent_folder(folder_parent, folder_objects)
+                    if not parent_folder:
+                        continue
+                    parent_folder.add_folder(folder_parent)
+                    folder_parent.parent = parent_folder
+                    folder_objects.append(folder_parent)
+                folder.parent = folder_parent
+                folder_parent.add_folder(folder)
+            else:
+                if root_folder:
+                    folder.parent = root_folder
+                    root_folder.add_folder(folder)
+            folder_objects.append(folder)
+        return folder_objects
+
+    @staticmethod
+    def _get_shared_folder_objects(folder_name, folders):
+        """Normalises the folder structure of a shared folder.
+
+         Prepends the shared folder name in the path of all the children folders making the structure one level less.
+
+        Args:
+            folder_name: The name of the shared folder.
+            folders: The list of all folders.
+
+        Returns:
+            A new structure for all children folders of a shared folder with the shared folder name part of their path.
+
+        """
+        root_secrets = folders.get(('',), [])
+        if root_secrets:
+            del folders[('',)]
+        folders = {(folder_name,) + folder: secrets for folder, secrets in folders.items()}
+        folders.update({(folder_name,): root_secrets})
+        return folders
+
+    def get_folder_by_name(self, name):
+        """Gets a folder by name.
+
+        Args:
+            name: The name of the folder to match.
+
+        Returns:
+            The folder it matched on if there is one match only, None if no match found.
+
+        Raises:
+            MultipleInstances: If there is more than one match with the same name.
+
+        """
+        folders = [folder for folder in self.folders if folder.name == name]
+        if not folders:
+            return folders
+        if len(folders) > 1:
+            raise MultipleInstances(f'multiple instances of {name} found')
+        return folders.pop()
+
+    @property
+    def folders(self):
+        """All the folders of the vault.
+
+        Returns:
+            A list of all the secrets of the vault.
+
+        """
+        if self._folders is None:
+            root_folder_data, personal_folders, shared_folders = self._parse_folder_groups(self.get_secrets())
+            root_folder = Folder('\\', ('\\',), is_personal=True)
+            root_folder.secrets.extend(root_folder_data.get('\\'))
+            all_folders = [root_folder]
+            all_folders.extend(self._get_folder_objects(personal_folders, root_folder, is_personal=True))
+            for name, folders in shared_folders.items():
+                shared_folder = self._get_shared_folder_objects(name, folders)
+                all_folders.extend(self._get_folder_objects(shared_folder, root_folder))
+            self._folders = all_folders
+        return self._folders
+
+    @property
+    def root_folder(self):
+        """The root folder of the lastpass vault.
+
+        Holds all sub folders and secrets saved in.
+
+        Returns:
+            Folder: The root folder.
+
+        """
+        return next((folder for folder in self.folders if folder.name == '\\'), None)
+
+    @property
+    def personal_folders(self):
+        """Retrieves all folders of the vault that are personal and not shared.
+
+        Returns:
+            list: A list of personal folders.
+
+        """
+        return [folder for folder in self.folders if folder.is_personal]
+
+    @property
+    def shared_folders(self):
+        """Retrieves all shared folders of the vault.
+
+        Returns:
+            list: A list of shared folders.
+
+        """
+        shared_names = [folder.shared_name for folder in self._shared_folders]
+        return [folder for folder in self.folders
+                if all([not folder.is_personal,
+                        folder.name in shared_names,
+                        len(folder.path) == 1])]
 
     def get_secrets(self, filter_=None):
         """Gets secrets from the vault.
