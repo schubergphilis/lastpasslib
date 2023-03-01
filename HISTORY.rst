@@ -43,3 +43,9 @@ History
 ------------------
 
 * Implement a consistent interface for update datetime reporting.
+
+
+0.7.0 (01-03-2023)
+------------------
+
+* Implement root folder, personal folders and shared folders. Report on password change for secure notes that support it.
