@@ -554,7 +554,7 @@ class Lastpass:
 
         """
         return [secret for secret in self.get_secrets(filter_)
-                if secret.shared_folder and secret.shared_folder.name == folder_name]
+                if secret.shared_folder and secret.shared_folder.shared_name == folder_name]
 
     def get_secret_by_id(self, id_):
         """Gets a secret from the vault by id.
