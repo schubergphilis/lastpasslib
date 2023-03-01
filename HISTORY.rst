@@ -49,3 +49,9 @@ History
 ------------------
 
 * Implement root folder, personal folders and shared folders. Report on password change for secure notes that support it.
+
+
+0.7.1 (01-03-2023)
+------------------
+
+* Expose only one level of personal folders.
