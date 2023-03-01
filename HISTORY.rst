@@ -55,3 +55,9 @@ History
 ------------------
 
 * Expose only one level of personal folders.
+
+
+0.7.2 (01-03-2023)
+------------------
+
+* Refactor to match on full share name.
