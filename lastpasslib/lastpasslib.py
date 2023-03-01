@@ -466,7 +466,8 @@ class Lastpass:
             list: A list of personal folders.
 
         """
-        return [folder for folder in self.folders if folder.is_personal]
+        return [folder for folder in self.folders if all([folder.is_personal,
+                                                          len(folder.path) == 1])]
 
     @property
     def shared_folders(self):
