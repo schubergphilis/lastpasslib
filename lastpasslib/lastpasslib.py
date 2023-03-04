@@ -317,6 +317,26 @@ class Lastpass:
         return self.decrypted_vault.encrypted_username
 
     @property
+    def attachments(self):
+        """The attachments of the vault."""
+        return self.decrypted_vault.attachments
+
+    @property
+    def never_urls(self):
+        """The never urls of the vault."""
+        return self.decrypted_vault.never_urls
+
+    @property
+    def equivalent_domains(self):
+        """The equivalent domains of the vault."""
+        return self.decrypted_vault.equivalent_domains
+
+    @property
+    def url_rules(self):
+        """The url rules of the vault."""
+        return self.decrypted_vault.url_rules
+
+    @property
     def uid(self):
         """The uid of lastpass."""
         return self._authenticated_response_data.get('uid')
