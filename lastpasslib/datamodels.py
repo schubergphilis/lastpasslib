@@ -244,3 +244,13 @@ class Folder:
 
     def add_folders(self, folders):
         self.folders.extend(folders)
+
+
+@dataclass
+class DecryptedVault:
+    encrypted_username: str
+    attachments: list
+    never_urls: list
+    equivalent_domains: list
+    url_rules: list
+    secrets: list
