@@ -122,18 +122,22 @@ class Vault:
     def _get_chunk_by_id(blob, chunk_id):
         return next((chunk for chunk in blob.chunks if chunk.id == chunk_id.encode('utf-8')), None)
 
-    def decrypt_blob(self, data):  # pylint: disable=too-many-locals
+    def decrypt_blob(self, data):
         blob = Blob(data)
-        secrets = []
-        attachments = []
-        key = self.key
-        rsa_private_key = None
-        shared_folder = None
         encrypted_username = Vault._get_chunk_by_id(blob, 'ENCU').payload.decode('utf-8')
         attachments_data = self._get_attachments(blob)
         never_urls = self._get_never_urls(blob)
         equivalent_domains = self._get_eqdns(blob)
         url_rules = self._get_url_rules(blob)
+        secrets, attachments = self._get_secrets_and_attachments(blob, attachments_data)
+        return DecryptedVault(encrypted_username, attachments, never_urls, equivalent_domains, url_rules, secrets)
+
+    def _get_secrets_and_attachments(self, blob, attachments_data):
+        secrets = []
+        attachments = []
+        key = self.key
+        rsa_private_key = None
+        shared_folder = None
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
                 try:
@@ -165,9 +169,10 @@ class Vault:
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
                 data = self._parse_shared_folder(chunk.payload, self.key, rsa_private_key)
                 shared_folder = self._lastpass._get_shared_folder_by_id(data.get('id'))  # pylint: disable=protected-access
-                shared_folder.shared_name = data.get('name')
+                if shared_folder:
+                    shared_folder.shared_name = data.get('name')
                 key = data.get('key')
-        return DecryptedVault(encrypted_username, attachments, never_urls, equivalent_domains, url_rules, secrets)
+        return secrets, attachments
 
     @staticmethod
     def _parse_url_rules(payload):
