@@ -132,6 +132,71 @@ class Vault:
         secrets, attachments = self._get_secrets_and_attachments(blob, attachments_data)
         return DecryptedVault(encrypted_username, attachments, never_urls, equivalent_domains, url_rules, secrets)
 
+    @staticmethod
+    def _get_attribute_payload_data(stream, attributes):
+        return {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
+
+    @staticmethod
+    def _parse_secret_type(payload, encryption_key):
+        """Parses an account chunk, decrypts and creates an Account object.
+
+        All secure notes are ACCTs but not all of them store account information.
+        """
+        stream = Stream(payload)
+        secret = SecretSchema()
+        data = Vault._get_attribute_payload_data(stream, secret.attributes)
+        data.update(Vault._transform_data_attributes(data,
+                                                     secret.plain_encrypted,
+                                                     EncryptManager.decrypt_aes256_auto,
+                                                     arguments={'encryption_key': encryption_key}))
+        data.update(Vault._transform_data_attributes(data,
+                                                     secret.base_64_encrypted,
+                                                     EncryptManager.decrypt_aes256_auto,
+                                                     arguments={'encryption_key': encryption_key,
+                                                                'base64': True}))
+        data.update(Vault._transform_data_attributes(data,
+                                                     secret.hex_decoded,
+                                                     EncryptManager.decode_hex))
+        data.update(Vault._transform_data_attributes(data,
+                                                     secret.decoded_attributes,
+                                                     lambda x: x.decode('utf-8')))
+        data.update(Vault._transform_data_attributes(data,
+                                                     secret.boolean_values,
+                                                     lambda x: bool(int(x))))
+        data['encryption_key'] = encryption_key
+        if data.get('is_secure_note'):
+            return Vault._parse_secure_note(data)
+        if all([not any([data.get('username'),
+                         data.get('password'),
+                         data.get('name'),
+                         data.get('notes')]),
+                data.get('url') == 'http://group']):
+            return FolderEntry, data
+        return Password, data
+
+    def _parse_secret(self,  # pylint: disable=too-many-arguments
+                      chunk,
+                      key,
+                      shared_folder,
+                      attachments_data,
+                      attachments,
+                      secrets):
+        class_type, data = self._parse_secret_type(chunk.payload, key)
+        if class_type is not FolderEntry:
+            # We disregard folder objects as they are not needed since they are referenced as a group from
+            # each secret, so they can be deducted and if the path was specified directly via the password
+            # creation form as new parent folders they are not actually created as entries but are rendered
+            # only on the UI.
+            secret = class_type(self._lastpass, data, shared_folder)
+            if secret.has_attachment:
+                for attachment_data in self._get_attachments_by_parent_id(secret.id, attachments_data):
+                    attachment_data['decryption_key'] = secret.attachment_encryption_key
+                    attachment = Attachment(self._lastpass, attachment_data)
+                    secret.add_attachment(attachment)
+                    attachments.append(attachment)
+            secrets.append(secret)
+        return secrets, attachments
+
     def _get_secrets_and_attachments(self, blob, attachments_data):
         secrets = []
         attachments = []
@@ -141,21 +206,8 @@ class Vault:
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
                 try:
-                    class_type, data = self._parse_secret(chunk.payload, key)
-                    if class_type is FolderEntry:
-                        # We disregard folder objects as they are not needed since they are referenced as a group from
-                        # each secret, so they can be deducted and if the path was specified directly via the password
-                        # creation form as new parent folders they are not actually created as entries but are rendered
-                        # only on the UI.
-                        continue
-                    secret = class_type(self._lastpass, data, shared_folder)
-                    if secret.has_attachment:
-                        for attachment_data in self._get_attachments_by_parent_id(secret.id, attachments_data):
-                            attachment_data['decryption_key'] = secret.attachment_encryption_key
-                            attachment = Attachment(self._lastpass, attachment_data)
-                            secret.add_attachment(attachment)
-                            attachments.append(attachment)
-                    secrets.append(secret)
+                    secrets, attachments = self._parse_secret(chunk, key, shared_folder, attachments_data, attachments,
+                                                              secrets)
                 # We want to skip any possible error so the process completes and we gather the errors so they can be
                 # troubleshot
                 except Exception:  # noqa
@@ -240,48 +292,6 @@ class Vault:
     def _get_attachments(blob):
         attachment_chunks = Vault._get_chunks_by_id(blob, 'ATTA')
         return [Vault._parse_attachment(chunk.payload) for chunk in attachment_chunks]
-
-    @staticmethod
-    def _parse_secret(payload, encryption_key):
-        """Parses an account chunk, decrypts and creates an Account object.
-
-        All secure notes are ACCTs but not all of them store account information.
-        """
-        stream = Stream(payload)
-        secret = SecretSchema()
-        data = Vault._get_attribute_payload_data(stream, secret.attributes)
-        data.update(Vault._transform_data_attributes(data,
-                                                     secret.plain_encrypted,
-                                                     EncryptManager.decrypt_aes256_auto,
-                                                     arguments={'encryption_key': encryption_key}))
-        data.update(Vault._transform_data_attributes(data,
-                                                     secret.base_64_encrypted,
-                                                     EncryptManager.decrypt_aes256_auto,
-                                                     arguments={'encryption_key': encryption_key,
-                                                                'base64': True}))
-        data.update(Vault._transform_data_attributes(data,
-                                                     secret.hex_decoded,
-                                                     EncryptManager.decode_hex))
-        data.update(Vault._transform_data_attributes(data,
-                                                     secret.decoded_attributes,
-                                                     lambda x: x.decode('utf-8')))
-        data.update(Vault._transform_data_attributes(data,
-                                                     secret.boolean_values,
-                                                     lambda x: bool(int(x))))
-        data['encryption_key'] = encryption_key
-        if data.get('is_secure_note'):
-            return Vault._parse_secure_note(data)
-        if all([not any([data.get('username'),
-                         data.get('password'),
-                         data.get('name'),
-                         data.get('notes')]),
-                data.get('url') == 'http://group']):
-            return FolderEntry, data
-        return Password, data
-
-    @staticmethod
-    def _get_attribute_payload_data(stream, attributes):
-        return {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
 
     @staticmethod
     def _transform_data_attributes(data, attributes, transformation, arguments=None):
