@@ -385,5 +385,5 @@ class Vault:
 
         """
         name = f'{f"{int(time.time() * 10)}-" if timestamp else ""}{name}'
-        with open(Path(path, name), 'w', encoding='utf8') as ofile:
-            ofile.write(self.blob.decode('utf-8'))
+        with open(Path(path, name), 'wb', encoding='utf8') as ofile:
+            ofile.write(self.blob)
