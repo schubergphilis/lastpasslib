@@ -384,6 +384,6 @@ class Vault:
             None.
 
         """
-        name = f'{name}{f"-{int(time.time() * 10)}" if timestamp else ""}'
+        name = f'{f"{int(time.time() * 10)}-" if timestamp else ""}{name}'
         with open(Path(path, name), 'w', encoding='utf8') as ofile:
             ofile.write(self.blob.decode('utf-8'))
