@@ -87,6 +87,7 @@ class Lastpass:
         self._monkey_patch_session()
         self._shared_folders_ = None
         self._folders = None
+        self._decrypted_vault = None
 
     def _monkey_patch_session(self):
         """Gets original request method and overrides it with the patched one.
@@ -305,9 +306,35 @@ class Lastpass:
         return [Event(*item.values()) for item in items]
 
     @property
+    def decrypted_vault(self):
+        if self._decrypted_vault is None:
+            self._decrypted_vault = self._vault.decrypt_blob(self._vault.blob)
+        return self._decrypted_vault
+
+    @property
     def encrypted_username(self):
         """The encrypted username of the user."""
-        return self._vault.encrypted_username
+        return self.decrypted_vault.encrypted_username
+
+    @property
+    def attachments(self):
+        """The attachments of the vault."""
+        return self.decrypted_vault.attachments
+
+    @property
+    def never_urls(self):
+        """The never urls of the vault."""
+        return self.decrypted_vault.never_urls
+
+    @property
+    def equivalent_domains(self):
+        """The equivalent domains of the vault."""
+        return self.decrypted_vault.equivalent_domains
+
+    @property
+    def url_rules(self):
+        """The url rules of the vault."""
+        return self.decrypted_vault.url_rules
 
     @property
     def uid(self):
@@ -494,7 +521,7 @@ class Lastpass:
 
         """
         filter_ = self._validate_filter(filter_)
-        return [secret for secret in self._vault.secrets if secret.type in filter_]
+        return [secret for secret in self.decrypted_vault.secrets if secret.type in filter_]
 
     def get_secret_by_name(self, name):
         """Gets a secret from the vault by name.
@@ -716,16 +743,21 @@ class Lastpass:
         return attachments
 
     def decrypt_blob(self, blob):
-        """Decrypts a provided blob of a vault back up and returns the unencrypted secrets.
+        """Decrypts a provided blob of a vault back up and returns the decrypted blob.
 
         Args:
             blob: The blob to decrypt.
 
         Returns:
-            list: A list of secrets in the blob.
+            DecryptedBlob: The decrypted blob.
 
         """
-        return self._vault.decrypt_blob(blob)
+        try:
+            self._decrypted_vault = self._vault.decrypt_blob(blob)
+        except Exception:
+            self._logger.exception('Unable to decrypt blob')
+            return False
+        return True
 
     @staticmethod
     def _validate_filter(filter_):
@@ -745,6 +777,7 @@ class Lastpass:
             True on success, False otherwise.
 
         """
+        self._decrypted_vault = None
         return self._vault.refresh()
 
     def save_vault_blob(self, path='.', name='vault.blob'):
