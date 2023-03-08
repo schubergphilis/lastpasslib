@@ -67,3 +67,9 @@ History
 ------------------
 
 * Decouple decrypted vault from vault functionality.
+
+
+0.7.4 (08-03-2023)
+------------------
+
+* Decouple decrypted vault from vault functionality.
