@@ -61,3 +61,9 @@ History
 ------------------
 
 * Refactor to match on full share name.
+
+
+0.7.3 (08-03-2023)
+------------------
+
+* Decouple decrypted vault from vault functionality.
