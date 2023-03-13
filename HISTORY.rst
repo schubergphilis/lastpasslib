@@ -73,3 +73,9 @@ History
 ------------------
 
 * Decouple decrypted vault from vault functionality.
+
+
+0.7.5 (13-03-2023)
+------------------
+
+* Hide possible logout error.
