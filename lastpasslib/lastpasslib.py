@@ -804,4 +804,8 @@ class Lastpass:
         return response.ok
 
     def __del__(self):
-        return self.logout()
+        try:
+            return self.logout()
+        except Exception as exc:
+            self._logger.debug(f'Error closing session, response: {exc}')
+            return False
