@@ -162,6 +162,7 @@ class Lastpass:
         error = parsed_response.find('error')
         if error is not None:
             exceptions = {
+                'unknownemail': UnknownUsername,
                 'user_not_exists': UnknownUsername,
                 'password_invalid': InvalidPassword,
                 'googleauthrequired': MfaRequired,
