@@ -459,7 +459,7 @@ class Lastpass:
         """All the folders of the vault.
 
         Returns:
-            A list of all the secrets of the vault.
+            A list of all the folders of the vault.
 
         """
         if self._folders is None:
