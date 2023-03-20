@@ -79,3 +79,9 @@ History
 ------------------
 
 * Hide possible logout error.
+
+
+0.7.6 (20-03-2023)
+------------------
+
+* Testing release.
