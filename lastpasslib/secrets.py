@@ -186,6 +186,23 @@ class Secret:
         """
         self._attachments.append(attachment)
 
+    def delete(self):
+        """Deletes the secret from Lastpass."""
+        url = f'{self._lastpass.host}/show.php'
+        data = {
+                'aid': self.id,
+                'delete': '1',
+                'encuser': self._lastpass.encrypted_username, 
+                'requesthash': self._lastpass.encrypted_username, 
+                'sentms': f"{time.time_ns() // 1_000_000}",
+                'token': self._lastpass.token,
+                }
+        response = self._lastpass.session.post(url, data=data)
+        if not response.ok:
+            response.raise_for_status()
+        self._lastpass.decrypted_vault.secrets = [secret for secret in self._lastpass.decrypted_vault.secrets if secret.name != self.name]
+        return response.ok
+
     @property
     def shared_to_people(self):
         """List of people the secret has been shared with."""
