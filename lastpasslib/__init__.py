@@ -43,7 +43,8 @@ from .lastpasslibexceptions import (ApiLimitReached,
                                     UnknownUsername,
                                     UnexpectedResponse,
                                     InvalidSecretType,
-                                    MultipleInstances)
+                                    MultipleInstances,
+                                    MobileDevicesRestricted)
 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
@@ -68,3 +69,4 @@ assert UnknownUsername
 assert UnexpectedResponse
 assert InvalidSecretType
 assert MultipleInstances
+assert MobileDevicesRestricted

@@ -84,3 +84,7 @@ class MultipleInstances(Exception):
 
 class UnknownIP(Exception):
     """The ip of the connection is not know to the service."""
+
+
+class MobileDevicesRestricted(Exception):
+    """Mobile devices are restricted on the Account settings of lastpass."""
