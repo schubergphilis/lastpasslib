@@ -85,3 +85,9 @@ History
 ------------------
 
 * Testing release.
+
+
+0.7.7 (21-03-2023)
+------------------
+
+* Implement better error messages on some faults.
