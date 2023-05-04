@@ -42,17 +42,18 @@ import requests
 from dateutil.parser import parse
 from requests import Session
 
-from .datamodels import Event, SharedFolder, CompanyUser, Folder
+from .datamodels import CompanyUser, Event, Folder, SharedFolder
 from .lastpasslibexceptions import (ApiLimitReached,
                                     InvalidMfa,
                                     InvalidPassword,
-                                    MfaRequired,
-                                    ServerError,
-                                    UnknownUsername,
-                                    UnexpectedResponse,
+                                    InvalidSecret,
                                     InvalidSecretType,
+                                    MfaRequired,
                                     MultipleInstances,
-                                    UnknownIP)
+                                    ServerError,
+                                    UnexpectedResponse,
+                                    UnknownIP,
+                                    UnknownUsername)
 from .secrets import SECURE_NOTE_TYPES
 from .vault import Vault
 
