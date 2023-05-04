@@ -53,7 +53,8 @@ from .lastpasslibexceptions import (ApiLimitReached,
                                     ServerError,
                                     UnexpectedResponse,
                                     UnknownIP,
-                                    UnknownUsername)
+                                    UnknownUsername,
+                                    MobileDevicesRestricted)
 from .secrets import SECURE_NOTE_TYPES
 from .vault import Vault
 
@@ -171,11 +172,21 @@ class Lastpass:
                 'googleauthfailed': InvalidMfa,
                 'microsoftauthfailed': InvalidMfa,
                 'yubikeyrestricted': InvalidMfa,
-                'unifiedloginresult': UnknownIP
+                'unifiedloginresult': UnknownIP,
+                'mobilerestricted': MobileDevicesRestricted,
             }
-            exception = exceptions.get(error.attrib.get('cause'), ServerError)
-            LOGGER.error(f'Got a server error :{error.attrib.get("cause")}')
-            raise exception(error.attrib.get('message'))
+            messages = {
+                'mobilerestricted': ('Mobile devices are restricted under "Advanced Settings" -> "Mobile Devices" '
+                                     'under the lastpass vault. Please enable and allow accordingly for the tool to '
+                                     'work.'),
+                'unifiedloginresult': ('You should have received an email from lastpass to allow the current IP to '
+                                       'access the vault, follow that link, provide access and run again.')
+            }
+            cause = error.attrib.get('cause')
+            exception = exceptions.get(cause, ServerError)
+            LOGGER.error(f'Got a server error :{cause}')
+            message = messages.get(cause, error.attrib.get('message'))
+            raise exception(message)
         return parsed_response
 
     def _get_authenticated_session(self, username, mfa=None, client_id=None):
@@ -654,13 +665,20 @@ class Lastpass:
             A list of password type secrets.
 
         """
-        return self.get_secrets(filter_="Password")
+        return self.get_secrets(filter_='Password')
 
     def delete_secret(self, name):
         """Deletes a secret from the vault.
 
+        Args:
+            name: The name to match on, case-sensitive.
+
         Returns:
-            bool: True on success, raises an HTTPError exception otherwise.
+            bool: True on success
+
+        Raises:
+            MultipleInstances: If more than one password is found with the same name.
+            HTTPError: If the deletion of the secret failed. 
 
         """
         secret = self.get_secret_by_name(name)

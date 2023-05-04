@@ -531,7 +531,7 @@
                 "sha256:43ce9281e097583d758c2c708c4376371261a02c34682491a8e98352365aad20",
                 "sha256:ff80f3b5394912eb1b108fcfd444dc78b7f1f3e16b16188054bd01cb9cb86f09"
             ],
-            "markers": "python_version >= '3.7'",
+            "markers": "python_version < '3.10'",
             "version": "==6.1.0"
         },
         "isort": {
