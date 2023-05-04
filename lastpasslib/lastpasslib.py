@@ -654,6 +654,7 @@ class Lastpass:
             A list of password type secrets.
 
         """
+        return self.get_secrets(filter_="Password")
 
     def delete_secret(self, name):
         """Deletes a secret from the vault.
