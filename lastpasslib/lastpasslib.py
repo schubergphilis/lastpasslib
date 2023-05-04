@@ -654,7 +654,18 @@ class Lastpass:
             A list of password type secrets.
 
         """
-        return self.get_secrets(filter_='Password')
+
+    def delete_secret(self, name):
+        """Deletes a secret from the vault.
+
+        Returns:
+            bool: True on success, raises an HTTPError exception otherwise.
+
+        """
+        secret = self.get_secret_by_name(name)
+        if not secret:
+            raise InvalidSecret(name)
+        return secret.delete()
 
     def get_passwords_by_group(self, group_name):
         """Gets passwords from the vault for the specified group.
