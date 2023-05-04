@@ -46,7 +46,6 @@ from .datamodels import CompanyUser, Event, Folder, SharedFolder
 from .lastpasslibexceptions import (ApiLimitReached,
                                     InvalidMfa,
                                     InvalidPassword,
-                                    InvalidSecret,
                                     InvalidSecretType,
                                     MfaRequired,
                                     MultipleInstances,
@@ -658,6 +657,27 @@ class Lastpass:
         """
         return [secret for secret in self.get_secrets() if secret.has_been_shared]
 
+    def delete_secret_by_name(self, name):
+        """Deletes a secret from the vault by name.
+
+        Args:
+            name: The name to match on, case-sensitive.
+
+        Returns:
+            bool: True on success, False otherwise.
+
+        Raises:
+            MultipleInstances: If more than one password is found with the same name.
+
+        """
+        secret = self.get_secret_by_name(name)
+        if not secret:
+            self._logger.error(f'Secret with name "{name}" not found.')
+            return False
+        return secret.delete()
+
+    # TODO: implement delete secret_by_id, password, secure note, etc.
+
     def get_passwords(self):
         """Gets only the passwords from the vault.
 
@@ -666,25 +686,6 @@ class Lastpass:
 
         """
         return self.get_secrets(filter_='Password')
-
-    def delete_secret(self, name):
-        """Deletes a secret from the vault.
-
-        Args:
-            name: The name to match on, case-sensitive.
-
-        Returns:
-            bool: True on success
-
-        Raises:
-            MultipleInstances: If more than one password is found with the same name.
-            HTTPError: If the deletion of the secret failed. 
-
-        """
-        secret = self.get_secret_by_name(name)
-        if not secret:
-            raise InvalidSecret(name)
-        return secret.delete()
 
     def get_passwords_by_group(self, group_name):
         """Gets passwords from the vault for the specified group.

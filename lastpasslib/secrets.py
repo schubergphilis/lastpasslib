@@ -61,6 +61,7 @@ class Secret:
     """Models the secret and exposes the main attributes that are shared across Passwords and Secure Notes."""
 
     def __init__(self, lastpass_instance, data, shared_folder=None):
+        self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
         self._lastpass = lastpass_instance
         self._data = data
         self._shared_folder = shared_folder
@@ -199,13 +200,15 @@ class Secret:
             'token': self._lastpass.token
         }
         response = self._lastpass.session.post(url, data=data, timeout=5)
-        response.raise_for_status()
+        if not response.ok:
+            self._logger.error(f'Response status: {response.status_code} with content: {response.content}.')
+            return False
         self._lastpass.decrypted_vault.secrets = [
             secret
             for secret in self._lastpass.decrypted_vault.secrets
             if secret.id != self.id
         ]
-        return response.ok
+        return True
 
     @property
     def shared_to_people(self):
