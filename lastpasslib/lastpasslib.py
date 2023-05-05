@@ -763,6 +763,44 @@ class Lastpass:
         """
         return [secret for secret in self.get_passwords() if secret.has_attachment]
 
+    def delete_password_by_name(self, name):
+        """Deletes a password from the vault by name.
+
+        Args:
+            name: The name to match on, case-sensitive.
+
+        Returns:
+            bool: True on success, False otherwise.
+
+        Raises:
+            MultipleInstances: If more than one password is found with the same name.
+
+        """
+        password = self.get_password_by_name(name)
+        if not password:
+            self._logger.error(f'Password with name "{name}" not found.')
+            return False
+        return password.delete()
+    
+    def delete_secret_by_id(self, id):
+        """Deletes a secret from the vault by id.
+
+        Args:
+            id: The id to match on
+
+        Returns:
+            bool: True on success, False otherwise.
+
+        Raises:
+            MultipleInstances: If more than one password is found with the same name.
+
+        """
+        secret = self.get_password_by_id(id)
+        if not secret:
+            self._logger.error(f'Secret with id "{id}" not found.')
+            return False
+        return secret.delete()
+
     def get_secure_notes(self):
         """Gets only secure notes for the vault.
 
