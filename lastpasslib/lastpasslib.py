@@ -694,7 +694,6 @@ class Lastpass:
             self._logger.error(f'Secret with id "{id}" not found.')
             return False
         return secret.delete()
-    # TODO: implement delete secret_by_id, password, secure note, etc.
 
     def get_passwords(self):
         """Gets only the passwords from the vault.
@@ -782,8 +781,8 @@ class Lastpass:
             return False
         return password.delete()
     
-    def delete_secret_by_id(self, id):
-        """Deletes a secret from the vault by id.
+    def delete_password_by_id(self, id):
+        """Deletes a password from the vault by id.
 
         Args:
             id: The id to match on
@@ -795,11 +794,11 @@ class Lastpass:
             MultipleInstances: If more than one password is found with the same name.
 
         """
-        secret = self.get_password_by_id(id)
-        if not secret:
-            self._logger.error(f'Secret with id "{id}" not found.')
+        password = self.get_password_by_id(id)
+        if not password:
+            self._logger.error(f'Password with id "{id}" not found.')
             return False
-        return secret.delete()
+        return password.delete()
 
     def get_secure_notes(self):
         """Gets only secure notes for the vault.
@@ -809,6 +808,31 @@ class Lastpass:
 
         """
         return self.get_secrets(filter_=SECURE_NOTE_TYPES)
+    
+    def get_secure_note_by_name(self, name, filter_=None):
+        """Gets a secure note from the vault matching a name.
+
+        Args:
+            name: The name to match on, case-sensitive.
+            filter_: The type of secret to filter on.
+
+        Returns:
+            list: A list of secure notes if they match the name, an empty list otherwise.
+
+        """
+        return [secure_note for secure_note in self.get_secure_notes(filter_) if secure_note.name == name]
+
+    def get_secure_note_by_id(self, id_):
+        """Gets a secure note from the vault by id.
+
+        Args:
+            id_: The id to match on.
+
+        Returns:
+            The secure note if a match is found, else None.
+
+        """
+        return next((secure_note for secure_note in self.get_secure_notes() if secure_note.id == id_), None)
 
     def get_secure_notes_by_group(self, group_name):
         """Gets secure notes from the vault for the specified group.
@@ -842,6 +866,44 @@ class Lastpass:
 
         """
         return [secret for secret in self.get_secure_notes() if secret.has_attachment]
+    
+    def delete_secure_note_by_name(self, name):
+        """Deletes a secure note from the vault by name.
+
+        Args:
+            name: The name to match on, case-sensitive.
+
+        Returns:
+            bool: True on success, False otherwise.
+
+        Raises:
+            MultipleInstances: If more than one secure note is found with the same name.
+
+        """
+        secure_note = self.get_secure_note_by_name(name)
+        if not secure_note:
+            self._logger.error(f'Secure note with name "{name}" not found.')
+            return False
+        return secure_note.delete()
+    
+    def delete_secure_note_by_id(self, id):
+        """Deletes a secure notes from the vault by id.
+
+        Args:
+            id: The id to match on
+
+        Returns:
+            bool: True on success, False otherwise.
+
+        Raises:
+            MultipleInstances: If more than one secure note is found with the same name.
+
+        """
+        secure_note = self.get_secure_note_by_id(id)
+        if not secure_note:
+            self._logger.error(f'Secure notes with id "{id}" not found.')
+            return False
+        return secure_note.delete()
 
     def get_attachments(self):
         """Gets all attachments from all secrets in the vault.
