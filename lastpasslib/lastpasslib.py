@@ -705,6 +705,31 @@ class Lastpass:
         """
         return self.get_secrets(filter_='Password')
 
+    def get_password_by_name(self, name, filter_=None):
+        """Gets password from the vault matching a name.
+
+        Args:
+            name: The name to match on, case-sensitive.
+            filter_: The type of secret to filter on.
+
+        Returns:
+            list: A list of passwords if they match the name, an empty list otherwise.
+
+        """
+        return [password for password in self.get_passwords(filter_) if password.name == name]
+
+    def get_password_by_id(self, id_):
+        """Gets a password from the vault by id.
+
+        Args:
+            id_: The id to match on.
+
+        Returns:
+            The password if a match is found, else None.
+
+        """
+        return next((password for password in self.get_passwords() if password.id == id_), None)
+
     def get_passwords_by_group(self, group_name):
         """Gets passwords from the vault for the specified group.
 
