@@ -675,7 +675,25 @@ class Lastpass:
             self._logger.error(f'Secret with name "{name}" not found.')
             return False
         return secret.delete()
+    
+    def delete_secret_by_id(self, id):
+        """Deletes a secret from the vault by id.
 
+        Args:
+            id: The id to match on
+
+        Returns:
+            bool: True on success, False otherwise.
+
+        Raises:
+            MultipleInstances: If more than one password is found with the same name.
+
+        """
+        secret = self.get_secret_by_id(id)
+        if not secret:
+            self._logger.error(f'Secret with id "{id}" not found.')
+            return False
+        return secret.delete()
     # TODO: implement delete secret_by_id, password, secure note, etc.
 
     def get_passwords(self):
