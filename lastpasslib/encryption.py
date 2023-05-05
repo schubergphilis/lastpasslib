@@ -278,6 +278,8 @@ class EncryptManager:
             arguments = [data] if not base64 else [b64decode(data)]
         arguments.append(encryption_key)
         return getattr(EncryptManager, f'decrypt_aes256_{cipher}')(*arguments)
+    
+    #TODO: create reverse of decrypt_aes256_auto
 
     @staticmethod
     def decrypt_aes256_cbc(iv, data, encryption_key):
@@ -285,11 +287,15 @@ class EncryptManager:
         decrypted_data = AES.new(encryption_key, AES.MODE_CBC, iv).decrypt(data)
         return EncryptManager._unpad_decrypted_data(decrypted_data)
 
+    #TODO: create reverse of decrypt_aes256_cbc
+
     @staticmethod
     def decrypt_aes256_ecb(data, encryption_key):
         """Decrypt AES-256 bytes with CBC."""
         decrypted_data = AES.new(encryption_key, AES.MODE_ECB).decrypt(data)
         return EncryptManager._unpad_decrypted_data(decrypted_data)
+    
+    #TODO: create reverse of decrypt_aes256_ecb
 
     @staticmethod
     def _unpad_decrypted_data(decrypted_data):
