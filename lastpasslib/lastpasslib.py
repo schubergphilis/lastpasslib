@@ -593,7 +593,7 @@ class Lastpass:
         """
         return [secret for secret in self.get_secrets(filter_) if secret.group == group_name]
 
-    def get_secrets_by_shared_folder(self, folder_name):
+    def get_secrets_by_shared_folder(self, folder_name, filter_=None):
         """Gets secrets from the vault for the specified shared folder.
 
         Args:
@@ -604,7 +604,7 @@ class Lastpass:
             list: A list of secrets of the shared folder, an empty list otherwise.
 
         """
-        return [secret for secret in self.get_secrets()
+        return [secret for secret in self.get_secrets(filter_)
                 if secret.shared_folder and secret.shared_folder.shared_name == folder_name]
 
     def get_passwords_with_password_updated_before_date(self, date):
