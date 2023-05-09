@@ -33,6 +33,7 @@ Main code for secrets.
 
 import base64
 import logging
+import time
 from copy import copy
 from datetime import datetime
 from pathlib import Path
@@ -60,6 +61,7 @@ class Secret:
     """Models the secret and exposes the main attributes that are shared across Passwords and Secure Notes."""
 
     def __init__(self, lastpass_instance, data, shared_folder=None):
+        self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
         self._lastpass = lastpass_instance
         self._data = data
         self._shared_folder = shared_folder
@@ -186,6 +188,28 @@ class Secret:
         """
         self._attachments.append(attachment)
 
+    def delete(self):
+        """Deletes the secret from Lastpass."""
+        url = f'{self._lastpass.host}/show.php'
+        data = {
+            'aid': self.id,
+            'delete': '1',
+            'encuser': self._lastpass.encrypted_username,
+            'requesthash': self._lastpass.encrypted_username,
+            'sentms': f"{time.time_ns() // 1_000_000}",
+            'token': self._lastpass.token
+        }
+        response = self._lastpass.session.post(url, data=data, timeout=5)
+        if not response.ok:
+            self._logger.error(f'Response status: {response.status_code} with content: {response.content}.')
+            return False
+        self._lastpass.decrypted_vault.secrets = [
+            secret
+            for secret in self._lastpass.decrypted_vault.secrets
+            if secret.id != self.id
+        ]
+        return True
+
     @property
     def shared_to_people(self):
         """List of people the secret has been shared with."""
@@ -198,8 +222,7 @@ class Secret:
                     'method': 'cr',
                     'token': self._lastpass.token}
             response = self._lastpass.session.post(url, data=data)
-            if not response.ok:
-                response.raise_for_status()
+            response.raise_for_status()
             sent = response.json().get('sent')
             if not sent:
                 return []
