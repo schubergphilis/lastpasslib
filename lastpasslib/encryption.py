@@ -138,7 +138,6 @@ class Blob:
 
         The last chunk of the encrypted blob should be an entry of "ENDM" with payload of "OK"
 
-
         Args:
             chunks: The collection of chunks of the blob.
 
@@ -278,26 +277,106 @@ class EncryptManager:
             arguments = [data] if not base64 else [b64decode(data)]
         arguments.append(encryption_key)
         return getattr(EncryptManager, f'decrypt_aes256_{cipher}')(*arguments)
-    
+
     #TODO: create reverse of decrypt_aes256_auto
 
     @staticmethod
-    def decrypt_aes256_cbc(iv, data, encryption_key):
-        """Decrypt AES-256 bytes with CBC."""
+    def decrypt_aes256_cbc(iv: bytes, data: bytes, encryption_key: bytes) -> bytes:
+        """Decrypt AES-256 bytes with CBC.
+
+        Args:
+            iv (bytes): The initialization vector
+            data (bytes): The data to decrypt
+            encryption_key (bytes): The key used to decrypt
+
+        Returns:
+            bytes: Byte string
+
+        """
         decrypted_data = AES.new(encryption_key, AES.MODE_CBC, iv).decrypt(data)
         return EncryptManager._unpad_decrypted_data(decrypted_data)
 
-    #TODO: create reverse of decrypt_aes256_cbc
+    @staticmethod
+    def encrypt_aes256_cbc(iv: bytes, data: str, encryption_key: bytes) -> bytes:
+        """Encrypt AES-256 bytes with CBC.
+
+        Args:
+            iv (bytes): The initialization vector
+            data (str): The data to encrypt
+            encryption_key (bytes): The key used to encrypt
+
+        Returns:
+            bytes: Byte string of hex
+
+        """
+        data = EncryptManager._pad_data(data)
+        encrypted_data = AES.new(encryption_key, AES.MODE_CBC, iv).encrypt(data.encode())
+        return encrypted_data
+
+    # returning base64 format from encrypt_aes256_cbc, results in decrypt_aes256_cbc returning
+        # 'Data must be padded to 16 byte boundary in CBC mode'
+        # code used:
+            # encrypted_data_base64 = base64.b64encode(encrypted_data).decode()
+    # I guess this is because base64 pads zero's to get to an equal number of six bits.
 
     @staticmethod
-    def decrypt_aes256_ecb(data, encryption_key):
-        """Decrypt AES-256 bytes with CBC."""
+    def decrypt_aes256_ecb(data: bytes, encryption_key: bytes) -> bytes:
+        """Decrypt AES-256 bytes with ECB.
+
+        Args:
+            data (bytes): The data to decrypt
+            encryption_key (bytes): The key used to decrypt
+
+        Returns:
+            bytes: Byte string
+
+        """
         decrypted_data = AES.new(encryption_key, AES.MODE_ECB).decrypt(data)
         return EncryptManager._unpad_decrypted_data(decrypted_data)
-    
-    #TODO: create reverse of decrypt_aes256_ecb
 
     @staticmethod
-    def _unpad_decrypted_data(decrypted_data):
-        # http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/
+    def encrypt_aes256_ecb(data: str, encryption_key: bytes) -> bytes:
+        """Encrypt AES-256 bytes with ECB.
+
+        Args:
+            data (str): The data to encrypt
+            encryption_key (bytes): The key used to encrypt
+
+        Returns:
+            bytes: Byte string of hex
+
+        """
+        data = EncryptManager._pad_data(data)
+        encrypted_data = AES.new(encryption_key, AES.MODE_ECB).encrypt(data.encode())
+        return encrypted_data
+
+    @staticmethod
+    def _unpad_decrypted_data(decrypted_data: bytes) -> bytes:
+        """Removes extra bits or bytes after it is decrypted.
+
+        Source used: http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/.
+
+        Args:
+            decrypted_data (bytes): byte string with padding
+
+        Returns:
+            bytes: Byte string
+
+        """
         return decrypted_data[0:-ord(decrypted_data[-1:])]
+
+    @staticmethod
+    def _pad_data(data: str, block_size: int = 8) -> str:
+        """Adds extra bits or bytes to plaintext before it is encrypted.
+
+        Source used: http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/.
+
+        Args:
+            data (str): plaintext message
+            block_size (int, optional): block size. Defaults to 8.
+
+        Returns:
+            str: String of hex
+
+        """
+        return data + (block_size - len(data) % block_size) * chr(block_size - len(data) % block_size)
