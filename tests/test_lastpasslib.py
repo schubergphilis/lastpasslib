@@ -34,6 +34,7 @@ Tests for `lastpasslib` module.
 """
 
 from betamax.fixtures import unittest
+from lastpasslib.encryption import EncryptManager
 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
@@ -63,3 +64,36 @@ class TestLastpasslib(unittest.BetamaxTestCase):
         This is where you should tear down what you've setup in setUp before. This method is called after every test.
         """
         pass
+
+
+class TestEncryption(unittest.BetamaxTestCase):
+
+    def setUp(self):
+        """
+        Test set up
+
+        This is where you can setup things that you use throughout the tests. This method is called before every test.
+            """
+        self.clear_text = 'this is a test text to encode.'
+        self.hex_encoded = b'7468697320697320612074657374207465787420746f20656e636f64652e'
+
+    def tearDown(self):
+        """
+        Test tear down
+
+        This is where you should tear down what you've setup in setUp before. This method is called after every test.
+        """
+        pass
+
+    def test_encode_hex(self):
+        self.assertEqual(self.hex_encoded, EncryptManager.encode_hex(self.clear_text.encode('utf-8')))
+
+    def test_decode_hex(self):
+        self.assertEqual(self.clear_text.encode('utf-8'), EncryptManager.decode_hex(self.hex_encoded))
+
+    def test_encode_decode_hex(self):
+        self.assertEqual(self.clear_text.encode('utf-8'),
+                         EncryptManager.decode_hex(EncryptManager.encode_hex(self.clear_text.encode('utf-8'))))
+
+    def test_decode_encode_hex(self):
+        self.assertEqual(self.hex_encoded, EncryptManager.encode_hex(EncryptManager.decode_hex(self.hex_encoded)))
