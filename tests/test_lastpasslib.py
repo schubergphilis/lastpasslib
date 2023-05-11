@@ -76,9 +76,10 @@ class TestEncryption(unittest.BetamaxTestCase):
         """
         self.clear_text = 'this is a test text to encode.'
         self.hex_encoded = b'7468697320697320612074657374207465787420746f20656e636f64652e'
-        self.aes256_cbc_encrypted = 'AQex7C1puuP6bhGYU9Wg83nbznslFhSRJwJHYxvpbWo='
-        self.iv = '1234567898765432'
-        self.encryption_key = 'OR5T^[s_mZQ6$fRe{Tx)W[D$j;|+og&%'
+        self.aes256_cbc_encrypted = b"\x01\x07\xb1\xec-i\xba\xe3\xfan\x11\x98S\xd5\xa0\xf3y\xdb\xce{%\x16\x14\x91'\x02Gc\x1b\xe9mj"
+        self.aes256_ecb_encrypted = b'\x93X\xd6\xd8\x83\x8a\x1f:\xae\xcf\xd0\xa6\xae\xa9c\x00@\x19,?/\xb0p\x97a7,\x15\xa8\xebHZ'
+        self.iv = b'1234567898765432'
+        self.encryption_key = b'OR5T^[s_mZQ6$fRe{Tx)W[D$j;|+og&%'
 
     def tearDown(self):
         """
@@ -103,3 +104,20 @@ class TestEncryption(unittest.BetamaxTestCase):
 
     def test_encrypt_aes256_cbc(self):
         self.assertEqual(self.aes256_cbc_encrypted, EncryptManager.encrypt_aes256_cbc(self.iv, self.clear_text, self.encryption_key))
+
+    def test_decrypt_aes256_cbc(self):
+        self.assertEqual(self.clear_text.encode('utf-8'), EncryptManager.decrypt_aes256_cbc(self.iv, self.aes256_cbc_encrypted, self.encryption_key))
+
+    def test_encrypt_decrypt_aes256_cbc(self):
+        encrypted_text = EncryptManager.encrypt_aes256_cbc(self.iv, self.clear_text, self.encryption_key)
+        self.assertEqual(self.clear_text.encode('utf-8'), EncryptManager.decrypt_aes256_cbc(self.iv, encrypted_text, self.encryption_key))
+
+    def test_encrypt_aes256_ecb(self):
+        self.assertEqual(self.aes256_ecb_encrypted, EncryptManager.encrypt_aes256_ecb(self.clear_text, self.encryption_key))
+
+    def test_decrypt_aes256_ecb(self):
+        self.assertEqual(self.clear_text.encode('utf-8'), EncryptManager.decrypt_aes256_ecb(self.aes256_ecb_encrypted, self.encryption_key))
+
+    def test_encrypt_decrypt_aes256_ecb(self):
+        encrypted_text = EncryptManager.encrypt_aes256_ecb(self.clear_text, self.encryption_key)
+        self.assertEqual(self.clear_text.encode('utf-8'), EncryptManager.decrypt_aes256_ecb(encrypted_text, self.encryption_key))
