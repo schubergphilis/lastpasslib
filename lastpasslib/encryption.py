@@ -278,8 +278,6 @@ class EncryptManager:
         arguments.append(encryption_key)
         return getattr(EncryptManager, f'decrypt_aes256_{cipher}')(*arguments)
 
-    #TODO: create reverse of decrypt_aes256_auto
-
     @staticmethod
     def decrypt_aes256_cbc(iv: bytes, data: bytes, encryption_key: bytes) -> bytes:
         """Decrypt AES-256 bytes with CBC.
@@ -312,12 +310,6 @@ class EncryptManager:
         data = EncryptManager._pad_data(data)
         encrypted_data = AES.new(encryption_key, AES.MODE_CBC, iv).encrypt(data.encode())
         return encrypted_data
-
-    # returning base64 format from encrypt_aes256_cbc, results in decrypt_aes256_cbc returning
-        # 'Data must be padded to 16 byte boundary in CBC mode'
-        # code used:
-            # encrypted_data_base64 = base64.b64encode(encrypted_data).decode()
-    # I guess this is because base64 pads zero's to get to an equal number of six bits.
 
     @staticmethod
     def decrypt_aes256_ecb(data: bytes, encryption_key: bytes) -> bytes:
