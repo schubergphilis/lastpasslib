@@ -145,6 +145,7 @@ class Vault:
         stream = Stream(payload)
         secret = SecretSchema()
         data = Vault._get_attribute_payload_data(stream, secret.attributes)
+        data['original_plain_encrypted_payload'] = {attribute: data[attribute] for attribute in secret.plain_encrypted}
         data.update(Vault._transform_data_attributes(data,
                                                      secret.plain_encrypted,
                                                      EncryptManager.decrypt_aes256_auto,
@@ -208,8 +209,7 @@ class Vault:
                 try:
                     secrets, attachments = self._parse_secret(chunk, key, shared_folder, attachments_data, attachments,
                                                               secrets)
-                # We want to skip any possible error so the process completes and we gather the errors so they can be
-                # troubleshot
+                # We want to skip any possible error so the process completes and we gather the errors for troubleshooting
                 except Exception:  # noqa
                     self._logger.exception('Unable to decrypt chunk, adding to the error list.')
                     self.unable_to_decrypt.append((chunk, key))

@@ -32,6 +32,7 @@ Main code for encryption.
 """
 
 import codecs
+import os
 import re
 import struct
 from base64 import b64decode
@@ -123,7 +124,7 @@ class Stream:
         """
         for _ in range(times):
             self.get_payload_by_size(self.read_byte_size(4))
-
+        return None
 
 class Blob:
     """Models the encrypted blob and implements functionality to traverse it and split it into encrypted chunks."""
@@ -178,6 +179,18 @@ class Blob:
 
 class EncryptManager:
     """Handles the decryption and decoding for all appropriate methods."""
+
+    @staticmethod
+    def create_random_iv(byte_size: int = 16) -> bytes:
+        """Creates an Initialization Vector (IV) byte string for a given length
+
+        Args:
+            byte_size (int): length of the byte string. Defaults to 16.
+
+        Returns:
+            bytes: Byte string
+        """
+        return os.urandom(byte_size)
 
     @staticmethod
     def decode_hex(data):
@@ -252,6 +265,9 @@ class EncryptManager:
         Returns:
             The decrypted data of the payload.
 
+        Raises:
+            TypeError: The data is not of type bytes
+
         """
         if not isinstance(data, bytes):
             raise TypeError('Data should be bytes.')
@@ -292,24 +308,23 @@ class EncryptManager:
 
         """
         decrypted_data = AES.new(encryption_key, AES.MODE_CBC, iv).decrypt(data)
-        return EncryptManager._unpad_decrypted_data(decrypted_data)
+        return EncryptManager._unpad_pkcs5_data(decrypted_data)
 
     @staticmethod
-    def encrypt_aes256_cbc(iv: bytes, data: str, encryption_key: bytes) -> bytes:
+    def encrypt_aes256_cbc(iv: bytes, data: bytes, encryption_key: bytes) -> bytes:
         """Encrypt AES-256 bytes with CBC.
 
         Args:
             iv (bytes): The initialization vector
-            data (str): The data to encrypt
+            data (bytes): The data to encrypt
             encryption_key (bytes): The key used to encrypt
 
         Returns:
             bytes: Byte string of hex
 
         """
-        data = EncryptManager._pad_data(data)
-        encrypted_data = AES.new(encryption_key, AES.MODE_CBC, iv).encrypt(data.encode())
-        return encrypted_data
+        padded_data = EncryptManager._pad_pkcs5_data(data)
+        return AES.new(encryption_key, AES.MODE_CBC, iv).encrypt(padded_data)
 
     @staticmethod
     def decrypt_aes256_ecb(data: bytes, encryption_key: bytes) -> bytes:
@@ -324,51 +339,67 @@ class EncryptManager:
 
         """
         decrypted_data = AES.new(encryption_key, AES.MODE_ECB).decrypt(data)
-        return EncryptManager._unpad_decrypted_data(decrypted_data)
+        return EncryptManager._unpad_pkcs5_data(decrypted_data)
 
     @staticmethod
-    def encrypt_aes256_ecb(data: str, encryption_key: bytes) -> bytes:
+    def encrypt_aes256_ecb(data: bytes, encryption_key: bytes) -> bytes:
         """Encrypt AES-256 bytes with ECB.
 
         Args:
-            data (str): The data to encrypt
+            data (bytes): The data to encrypt
             encryption_key (bytes): The key used to encrypt
 
         Returns:
             bytes: Byte string of hex
 
         """
-        data = EncryptManager._pad_data(data)
-        encrypted_data = AES.new(encryption_key, AES.MODE_ECB).encrypt(data.encode())
-        return encrypted_data
+        padded_data = EncryptManager._pad_pkcs5_data(data)
+        return AES.new(encryption_key, AES.MODE_ECB).encrypt(padded_data)
 
     @staticmethod
-    def _unpad_decrypted_data(decrypted_data: bytes) -> bytes:
+    def _unpad_pkcs5_data(data: bytes) -> bytes:
         """Removes extra bits or bytes after it is decrypted.
 
-        Source used: http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/.
+        Source used http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/.
+
+        Example:
+            data = 'This is a test string'
+            block_size = 8
+            output = 'This is a test string\x03\x03\x03'
+
+            block_size = 16
+            output = 'This is a test string\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b'
 
         Args:
-            decrypted_data (bytes): byte string with padding
+            data (bytes): byte string with padding
 
         Returns:
             bytes: Byte string
 
         """
-        return decrypted_data[0:-ord(decrypted_data[-1:])]
+        return data[0:-ord(data[-1:])]
 
     @staticmethod
-    def _pad_data(data: str, block_size: int = 8) -> str:
-        """Adds extra bits or bytes to plaintext before it is encrypted.
+    def _pad_pkcs5_data(data: bytes, block_size: int = 16) -> bytes:
+        """Add extra bits or bytes of padding to plaintext before it is encrypted.
 
-        Source used: http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/.
+        Source used http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/.
+
+        Example:
+            data = 'This is a test string'
+            block_size = 8
+            output = b'This is a test string\x03\x03\x03'
+
+            block_size = 16
+            output = b'This is a test string\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b\x0b'
 
         Args:
-            data (str): plaintext message
-            block_size (int, optional): block size. Defaults to 8.
+            data (bytes): byte string
+            block_size (int): block size. Defaults to 16.
 
         Returns:
-            str: String of hex
+            bytes: data provided with padding appended
 
         """
-        return data + (block_size - len(data) % block_size) * chr(block_size - len(data) % block_size)
+        padding = (block_size - len(data) % block_size) * chr(block_size - len(data) % block_size)
+        return data + padding.encode()
