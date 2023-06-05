@@ -129,6 +129,7 @@ class SharedFolder:
     share_data: str = ''
     sharer: str = ''
     shared_name: str = ''
+    encryption_key: str = ''
 
     @property
     def last_modified_datetime(self):
@@ -220,10 +221,12 @@ class ShareAction:
 class Folder:
     name: str
     path: tuple
+    id: int = 0 
     parent: 'Folder' = None
     folders: list = field(default_factory=list)
     secrets: list = field(default_factory=list)
     is_personal: bool = False
+    encryption_key: str = ''
 
     @property
     def full_path(self):
@@ -254,3 +257,5 @@ class DecryptedVault:
     equivalent_domains: list
     url_rules: list
     secrets: list
+    folders: list
+    shared_folders: list
