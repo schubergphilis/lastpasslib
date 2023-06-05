@@ -41,7 +41,7 @@ from pathlib import Path
 from Crypto.Cipher import PKCS1_OAEP
 from binascii import hexlify
 
-from .datamodels import NeverUrl, EquivalentDomain, UrlRule, DecryptedVault
+from .datamodels import Folder, NeverUrl, EquivalentDomain, UrlRule, DecryptedVault
 from .dataschemas import SecretSchema, SharedFolderSchema, AttachmentSchema
 from .encryption import Blob, EncryptManager, Stream
 from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom, FolderEntry
@@ -129,8 +129,8 @@ class Vault:
         never_urls = self._get_never_urls(blob)
         equivalent_domains = self._get_eqdns(blob)
         url_rules = self._get_url_rules(blob)
-        secrets, attachments = self._get_secrets_and_attachments(blob, attachments_data)
-        return DecryptedVault(encrypted_username, attachments, never_urls, equivalent_domains, url_rules, secrets)
+        secrets, attachments, folders, shared_folders = self._get_secrets_and_attachments(blob, attachments_data)
+        return DecryptedVault(encrypted_username, attachments, never_urls, equivalent_domains, url_rules, secrets, folders, shared_folders)
 
     @staticmethod
     def _get_attribute_payload_data(stream, attributes):
@@ -174,6 +174,13 @@ class Vault:
             return FolderEntry, data
         return Password, data
 
+    def _parse_folder(self, chunk, key, folders):
+        class_type, data = self._parse_secret_type(chunk.payload, key)
+        if class_type is FolderEntry:
+            folder = Folder(id=data.get('id'), name=data.get('group'), path=[data.get('group')], encryption_key=data.get('encryption_key'), is_personal=True)
+            folders.append(folder)
+        return folders
+
     def _parse_secret(self,  # pylint: disable=too-many-arguments
                       chunk,
                       key,
@@ -182,19 +189,20 @@ class Vault:
                       attachments,
                       secrets):
         class_type, data = self._parse_secret_type(chunk.payload, key)
-        if class_type is not FolderEntry:
+        if class_type is FolderEntry:
+            return None
             # We disregard folder objects as they are not needed since they are referenced as a group from
             # each secret, so they can be deducted and if the path was specified directly via the password
             # creation form as new parent folders they are not actually created as entries but are rendered
             # only on the UI.
-            secret = class_type(self._lastpass, data, shared_folder)
-            if secret.has_attachment:
-                for attachment_data in self._get_attachments_by_parent_id(secret.id, attachments_data):
-                    attachment_data['decryption_key'] = secret.attachment_encryption_key
-                    attachment = Attachment(self._lastpass, attachment_data)
-                    secret.add_attachment(attachment)
-                    attachments.append(attachment)
-            secrets.append(secret)
+        secret = class_type(self._lastpass, data, shared_folder)
+        if secret.has_attachment:
+            for attachment_data in self._get_attachments_by_parent_id(secret.id, attachments_data):
+                attachment_data['decryption_key'] = secret.attachment_encryption_key
+                attachment = Attachment(self._lastpass, attachment_data)
+                secret.add_attachment(attachment)
+                attachments.append(attachment)
+        secrets.append(secret)
         return secrets, attachments
 
     def _get_secrets_and_attachments(self, blob, attachments_data):
@@ -203,11 +211,14 @@ class Vault:
         key = self.key
         rsa_private_key = None
         shared_folder = None
+        shared_folders = []
+        folders = []
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
                 try:
                     secrets, attachments = self._parse_secret(chunk, key, shared_folder, attachments_data, attachments,
                                                               secrets)
+                    folders = self._parse_folder(chunk, key, folders)
                 # We want to skip any possible error so the process completes and we gather the errors so they can be
                 # troubleshot
                 except Exception:  # noqa
@@ -223,8 +234,10 @@ class Vault:
                 shared_folder = self._lastpass._get_shared_folder_by_id(data.get('id'))  # pylint: disable=protected-access
                 if shared_folder:
                     shared_folder.shared_name = data.get('name')
+                    shared_folder.encryption_key = data.get('key')
+                    shared_folders.append(shared_folder)
                 key = data.get('key')
-        return secrets, attachments
+        return secrets, attachments, folders, shared_folders
 
     @staticmethod
     def _parse_url_rules(payload):
