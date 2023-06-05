@@ -473,6 +473,14 @@ class Lastpass:
             A list of all the folders of the vault.
 
         """
+        # we create a root folder
+        # we get data from self.decrypted_vault - secrets, folders, shared_folders
+        # append the folders and shared_folders to root
+        # based on all paths, create folders and append to others. 
+        # for each secret, append to folder.
+
+        # alternative append secrets to paths. 
+
         if self._folders is None:
             root_folder_data, personal_folders, shared_folders = self._parse_folder_groups(self.get_secrets())
             root_folder = Folder('\\', ('\\',), is_personal=True)
