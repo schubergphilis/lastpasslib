@@ -188,20 +188,29 @@ class Lastpass:
             raise exception(message)
         return parsed_response
 
+    @staticmethod
+    def _extend_payload_for_mfa(mfa, payload):
+        payload['otp'] = mfa
+        conditions_for_yubikey = [len(mfa) > 6, str(mfa).isalpha(), str(mfa).islower()]
+        if all(conditions_for_yubikey):
+            LOGGER.debug('Identified mfa as yubikey.')
+            payload['provider'] = 'yubikey'
+        return payload
+
     def _get_authenticated_session(self, username, mfa=None, client_id=None):
         session = Session()
-        body = {'method': 'mobile',
-                'web': 1,
-                'xml': 1,
-                'username': username,
-                'hash': self._vault.hash,
-                'iterations': self.iteration_count, }
+        payload = {'method': 'mobile',
+                   'web': 1,
+                   'xml': 1,
+                   'username': username,
+                   'hash': self._vault.hash,
+                   'iterations': self.iteration_count}
         if mfa:
-            body['otp'] = mfa
+            payload = self._extend_payload_for_mfa(mfa, payload)
         if client_id:
-            body['imei'] = client_id
+            payload['imei'] = client_id
         headers = {'user-agent': 'lastpasslib'}
-        response = requests.post(f'{self.host}/login.php', data=body, headers=headers, timeout=10)
+        response = requests.post(f'{self.host}/login.php', data=payload, headers=headers, timeout=10)
         parsed_response = self._validate_response(response)
         if parsed_response.tag == 'ok':
             data = parsed_response.attrib
