@@ -191,7 +191,7 @@ class Lastpass:
     @staticmethod
     def _extend_payload_for_mfa(mfa, payload):
         payload['otp'] = mfa
-        conditions_for_yubikey = [len(mfa) > 6, str(mfa).isalpha(), str(mfa).islower()]
+        conditions_for_yubikey = [len(mfa) == 44, str(mfa).isalpha(), str(mfa).islower()]
         if all(conditions_for_yubikey):
             LOGGER.debug('Identified mfa as yubikey.')
             payload['provider'] = 'yubikey'
