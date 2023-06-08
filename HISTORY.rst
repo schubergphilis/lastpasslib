@@ -91,3 +91,9 @@ History
 ------------------
 
 * Implement better error messages on some faults.
+
+
+0.8.0 (08-06-2023)
+------------------
+
+* Implement support for yubikey MFA
