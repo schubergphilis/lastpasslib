@@ -386,19 +386,39 @@ class Lastpass:
         return root_folder_data, personal_folders_data, shared_folders_data
 
     @staticmethod
-    def _get_parent_folder(folder, folders):
-        """Tries to identify the parent folder of a provided folder and return that from a list of folders.
+    def _get_parent_folder(path, folders):
+        """Tries to identify the parent folder of a provided path and return that from a list of folders.
 
         Args:
-            folder: The folder to look the parent for.
+            path: The folder to look the parent for.
             folders: A list of all the folders.
 
         Returns:
             The parent folder of the mentioned folder if a match is found, else None.
 
         """
-        return next((parent_folder for parent_folder in folders
-                     if tuple(folder.path[:-1]) == parent_folder.path), None)  # noqa
+        return next((folder_ for folder_ in folders if type(folder_) is not SharedFolder and folder_.path == [path]), None)
+
+    def _append_secrets_to_folders(self, secrets:list, folders:list) -> list:
+        """Appends secrets to the root, shared or personal folder based on the path.
+
+        Args:
+            secrets (list): Secrets coming from the blob
+            folders (list): list containing all folders
+
+        Returns:
+            list: the list of all folders
+        """
+        for secret in secrets:
+            if secret.shared_folder:
+                [folder.secrets.append(secret) for folder in folders if folder.id == secret.shared_folder.id]
+            else:
+                folder_parent = self._get_parent_folder(secret.group, folders)
+                if not folder_parent:
+                    [folder.secrets.append(secret) for folder in folders if folder.name == '\\']
+                    continue
+                folder_parent.secrets.append(secret)
+        return folders
 
     def _get_folder_objects(self, secrets_by_path, root_folder=None, is_personal=False):
         folder_objects = []
@@ -482,15 +502,19 @@ class Lastpass:
         # alternative append secrets to paths. 
 
         if self._folders is None:
-            root_folder_data, personal_folders, shared_folders = self._parse_folder_groups(self.get_secrets())
-            root_folder = Folder('\\', ('\\',), is_personal=True)
-            root_folder.secrets.extend(root_folder_data.get('\\'))
-            all_folders = [root_folder]
-            all_folders.extend(self._get_folder_objects(personal_folders, root_folder, is_personal=True))
-            for name, folders in shared_folders.items():
-                shared_folder = self._get_shared_folder_objects(name, folders)
-                all_folders.extend(self._get_folder_objects(shared_folder, root_folder))
-            self._folders = all_folders
+            secrets = self.decrypted_vault.secrets
+            personal_folders = self.decrypted_vault.folders
+            shared_folders = self.decrypted_vault.shared_folders
+            root_folder = Folder('\\', ('\\',), is_personal=True, encryption_key=personal_folders[0].encryption_key)
+            
+            folders = [root_folder]
+            [folders.extend(list_) for list_ in (personal_folders, shared_folders)] # append to the root folder? no?
+            self._append_secrets_to_folders(secrets, folders)
+            self._folders = folders
+            # now no folders are created to create an hierarchy
+            # And the name is the same as full path.
+
+            # TODO: check why some personal folders have no name nor path
         return self._folders
 
     @property
@@ -513,8 +537,9 @@ class Lastpass:
             list: A list of personal folders.
 
         """
-        return [folder for folder in self.folders if all([folder.is_personal,
-                                                          len(folder.path) == 1])]
+        return [folder for folder in self.folders if type(folder) is not SharedFolder]
+        # return [folder for folder in self.folders if all([folder.is_personal,
+        #                                                   len(folder.path) == 1])]
 
     @property
     def shared_folders(self):
@@ -524,11 +549,13 @@ class Lastpass:
             list: A list of shared folders.
 
         """
-        shared_names = [folder.shared_name for folder in self._shared_folders]
-        return [folder for folder in self.folders
-                if all([not folder.is_personal,
-                        folder.name in shared_names,
-                        len(folder.path) == 1])]
+        return [folder for folder in self.folders if type(folder) is SharedFolder]
+    
+        # shared_names = [folder.shared_name for folder in self._shared_folders]
+        # return [folder for folder in self.folders
+        #         if all([not folder.is_personal,
+        #                 folder.name in shared_names,
+        #                 len(folder.path) == 1])]
 
     def get_secrets(self, filter_=None):
         """Gets secrets from the vault.
