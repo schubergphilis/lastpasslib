@@ -165,7 +165,7 @@ class Vault:
                                                      lambda x: bool(int(x))))
         data['encryption_key'] = encryption_key
         if data.get('is_secure_note'):
-            return Vault._parse_secure_note(data)
+            return Vault._parse_secure_note(data) # why is this not returned as SecureNote, data?
         if all([not any([data.get('username'),
                          data.get('password'),
                          data.get('name'),
@@ -185,25 +185,23 @@ class Vault:
                       chunk,
                       key,
                       shared_folder,
+                      folders,
                       attachments_data,
                       attachments,
                       secrets):
         class_type, data = self._parse_secret_type(chunk.payload, key)
         if class_type is FolderEntry:
-            return None
-            # We disregard folder objects as they are not needed since they are referenced as a group from
-            # each secret, so they can be deducted and if the path was specified directly via the password
-            # creation form as new parent folders they are not actually created as entries but are rendered
-            # only on the UI.
-        secret = class_type(self._lastpass, data, shared_folder)
-        if secret.has_attachment:
-            for attachment_data in self._get_attachments_by_parent_id(secret.id, attachments_data):
-                attachment_data['decryption_key'] = secret.attachment_encryption_key
-                attachment = Attachment(self._lastpass, attachment_data)
-                secret.add_attachment(attachment)
-                attachments.append(attachment)
-        secrets.append(secret)
-        return secrets, attachments
+            folders = self._parse_folder(chunk, key, folders)
+        if class_type is not FolderEntry:
+            secret = class_type(self._lastpass, data, shared_folder)
+            if secret.has_attachment:
+                for attachment_data in self._get_attachments_by_parent_id(secret.id, attachments_data):
+                    attachment_data['decryption_key'] = secret.attachment_encryption_key
+                    attachment = Attachment(self._lastpass, attachment_data)
+                    secret.add_attachment(attachment)
+                    attachments.append(attachment)
+            secrets.append(secret)
+        return secrets, attachments, folders
 
     def _get_secrets_and_attachments(self, blob, attachments_data):
         secrets = []
@@ -216,9 +214,8 @@ class Vault:
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
                 try:
-                    secrets, attachments = self._parse_secret(chunk, key, shared_folder, attachments_data, attachments,
+                    secrets, attachments, folders = self._parse_secret(chunk, key, shared_folder, folders, attachments_data, attachments,
                                                               secrets)
-                    folders = self._parse_folder(chunk, key, folders)
                 # We want to skip any possible error so the process completes and we gather the errors so they can be
                 # troubleshot
                 except Exception:  # noqa
