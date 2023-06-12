@@ -130,6 +130,7 @@ class SharedFolder:
     sharer: str = ''
     shared_name: str = ''
     encryption_key: str = ''
+    secrets: list = field(default_factory=list)
 
     @property
     def last_modified_datetime(self):
