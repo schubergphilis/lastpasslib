@@ -20,6 +20,6 @@ semver>=2.13.0
 gitwrapperlib>=1.0.0
 twine>=4.0.2
 coloredlogs>=15.0.1
-emoji>=2.4.0
+emoji>=2.5.0
 toml>=0.10.2
 typing-extensions>=4.6.3
