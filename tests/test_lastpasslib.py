@@ -72,16 +72,20 @@ class TestEncryption(unittest.BetamaxTestCase):
         """
         Test set up
 
-        This is where you can setup things that you use throughout the tests. This method is called before every test.
-            """
+        This is where you can set up things that you use throughout the tests. This method is called before every test.
+        """
         self.clear_text = 'this is a test text to encode.'
         self.hex_encoded = b'7468697320697320612074657374207465787420746f20656e636f64652e'
+        self.aes256_cbc_encrypted = b"\x01\x07\xb1\xec-i\xba\xe3\xfan\x11\x98S\xd5\xa0\xf3y\xdb\xce{%\x16\x14\x91'\x02Gc\x1b\xe9mj"
+        self.aes256_ecb_encrypted = b'\x93X\xd6\xd8\x83\x8a\x1f:\xae\xcf\xd0\xa6\xae\xa9c\x00@\x19,?/\xb0p\x97a7,\x15\xa8\xebHZ'
+        self.iv = b'1234567898765432'
+        self.encryption_key = b'OR5T^[s_mZQ6$fRe{Tx)W[D$j;|+og&%'
 
     def tearDown(self):
         """
         Test tear down
 
-        This is where you should tear down what you've setup in setUp before. This method is called after every test.
+        This is where you should tear down what you've set up in setUp before. This method is called after every test.
         """
         pass
 
@@ -97,3 +101,16 @@ class TestEncryption(unittest.BetamaxTestCase):
 
     def test_decode_encode_hex(self):
         self.assertEqual(self.hex_encoded, EncryptManager.encode_hex(EncryptManager.decode_hex(self.hex_encoded)))
+
+    def test_encrypt_aes256_cbc(self):
+        self.assertEqual(self.aes256_cbc_encrypted, EncryptManager.encrypt_aes256_cbc(self.iv, self.clear_text.encode('utf-8'), self.encryption_key))
+
+    def test_decrypt_aes256_cbc(self):
+        self.assertEqual(self.clear_text.encode('utf-8'), EncryptManager.decrypt_aes256_cbc(self.iv, self.aes256_cbc_encrypted, self.encryption_key))
+
+    def test_encrypt_decrypt_aes256_cbc(self):
+        encrypted_text = EncryptManager.encrypt_aes256_cbc(self.iv, self.clear_text.encode('utf-8'), self.encryption_key)
+        self.assertEqual(self.clear_text.encode('utf-8'), EncryptManager.decrypt_aes256_cbc(self.iv, encrypted_text, self.encryption_key))
+
+    def test_decrypt_aes256_ecb(self):
+        self.assertEqual(self.clear_text.encode('utf-8'), EncryptManager.decrypt_aes256_ecb(self.aes256_ecb_encrypted, self.encryption_key))
