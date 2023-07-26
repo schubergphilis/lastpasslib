@@ -254,3 +254,4 @@ class DecryptedVault:
     equivalent_domains: list
     url_rules: list
     secrets: list
+    folder_entries: list

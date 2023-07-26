@@ -129,8 +129,13 @@ class Vault:
         never_urls = self._get_never_urls(blob)
         equivalent_domains = self._get_eqdns(blob)
         url_rules = self._get_url_rules(blob)
-        secrets, attachments = self._get_secrets_and_attachments(blob, attachments_data)
-        return DecryptedVault(encrypted_username, attachments, never_urls, equivalent_domains, url_rules, secrets)
+        secrets, attachments, folder_entries = self._get_secrets_folders_and_attachments(blob, attachments_data)
+        return DecryptedVault(encrypted_username,
+                              attachments,
+                              never_urls,
+                              equivalent_domains,
+                              url_rules, secrets,
+                              folder_entries)
 
     @staticmethod
     def _get_attribute_payload_data(stream, attributes):
@@ -180,14 +185,13 @@ class Vault:
                       shared_folder,
                       attachments_data,
                       attachments,
-                      secrets):
+                      secrets,
+                      folder_entries):
         class_type, data = self._parse_secret_type(chunk.payload, key)
-        if class_type is not FolderEntry:
-            # We disregard folder objects as they are not needed since they are referenced as a group from
-            # each secret, so they can be deducted and if the path was specified directly via the password
-            # creation form as new parent folders they are not actually created as entries but are rendered
-            # only on the UI.
-            secret = class_type(self._lastpass, data, shared_folder)
+        secret = class_type(self._lastpass, data, shared_folder)
+        if class_type is FolderEntry:
+            folder_entries.append(secret)
+        else:
             if secret.has_attachment:
                 for attachment_data in self._get_attachments_by_parent_id(secret.id, attachments_data):
                     attachment_data['decryption_key'] = secret.attachment_encryption_key
@@ -195,19 +199,25 @@ class Vault:
                     secret.add_attachment(attachment)
                     attachments.append(attachment)
             secrets.append(secret)
-        return secrets, attachments
+        return secrets, attachments, folder_entries
 
-    def _get_secrets_and_attachments(self, blob, attachments_data):
+    def _get_secrets_folders_and_attachments(self, blob, attachments_data):
         secrets = []
         attachments = []
+        folder_entries = []
         key = self.key
         rsa_private_key = None
         shared_folder = None
         for chunk in blob.chunks:
             if chunk.id == b'ACCT':
                 try:
-                    secrets, attachments = self._parse_secret(chunk, key, shared_folder, attachments_data, attachments,
-                                                              secrets)
+                    secrets, attachments, folder_entries = self._parse_secret(chunk,
+                                                                              key,
+                                                                              shared_folder,
+                                                                              attachments_data,
+                                                                              attachments,
+                                                                              secrets,
+                                                                              folder_entries)
                 # We want to skip any possible error so the process completes and we gather the errors so they can be
                 # troubleshot
                 except Exception:  # noqa
@@ -224,7 +234,7 @@ class Vault:
                 if shared_folder:
                     shared_folder.shared_name = data.get('name')
                 key = data.get('key')
-        return secrets, attachments
+        return secrets, attachments, folder_entries
 
     @staticmethod
     def _parse_url_rules(payload):
