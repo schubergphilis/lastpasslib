@@ -124,7 +124,7 @@ class Stream:
         """
         for _ in range(times):
             self.get_payload_by_size(self.read_byte_size(4))
-        return None
+
 
 class Blob:
     """Models the encrypted blob and implements functionality to traverse it and split it into encrypted chunks."""
@@ -182,13 +182,14 @@ class EncryptManager:
 
     @staticmethod
     def create_random_iv(byte_size: int = 16) -> bytes:
-        """Creates an Initialization Vector (IV) byte string for a given length
+        """Creates an Initialization Vector (IV) byte string for a given length.
 
         Args:
             byte_size (int): length of the byte string. Defaults to 16.
 
         Returns:
             bytes: Byte string
+
         """
         return os.urandom(byte_size)
 
@@ -343,7 +344,7 @@ class EncryptManager:
 
     @staticmethod
     def _unpad_pkcs5_data(data: bytes) -> bytes:
-        """Removes extra bits or bytes after it is decrypted.
+        r"""Removes extra bits or bytes after it is decrypted.
 
         Source used http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/.
 
@@ -366,7 +367,7 @@ class EncryptManager:
 
     @staticmethod
     def _pad_pkcs5_data(data: bytes, block_size: int = 16) -> bytes:
-        """Add extra bits or bytes of padding to plaintext before it is encrypted.
+        r"""Add extra bits or bytes of padding to plaintext before it is encrypted.
 
         Source used http://passingcuriosity.com/2009/aes-encryption-in-python-with-m2crypto/.
 
