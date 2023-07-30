@@ -386,18 +386,19 @@ class Lastpass:
         for secret in secrets:
             if not any([secret.group_id, secret.shared_folder]):
                 root_folder_data['\\'].append(secret)
-            else:
-                if secret.group_id:
-                    split_path = tuple(secret.group.split('\\'))
-                    is_personal = True
-                if secret.shared_folder:
-                    split_path = tuple([secret.shared_folder.shared_name] + secret.group.split('\\'))
-                    is_personal = False
-                folder_metadata = FolderMetadata(split_path,
-                                                 secret.group_id,
-                                                 secret.encryption_key,
-                                                 is_personal=is_personal)
-                folders_data[folder_metadata].append(secret)
+                continue
+            if secret.group_id:
+                split_path = tuple(secret.group.split('\\'))
+                is_personal = True
+            if secret.shared_folder:
+                split_path = tuple([secret.shared_folder.shared_name] + secret.group.split('\\')) if secret.group\
+                             else tuple([secret.shared_folder.shared_name])
+                is_personal = False
+            folder_metadata = FolderMetadata(split_path,
+                                             secret.group_id,
+                                             secret.encryption_key,
+                                             is_personal=is_personal)
+            folders_data[folder_metadata].append(secret)
         return root_folder_data, folders_data
 
     @staticmethod
@@ -432,11 +433,10 @@ class Lastpass:
                                            id=None,
                                            encryption_key=folder.encryption_key,
                                            is_personal=folder_metadata.is_personal)
-                    parent_folder = self._get_parent_folder(folder_parent, folder_objects)
-                    if not parent_folder:
-                        continue
-                    parent_folder.add_folder(folder_parent)
-                    folder_parent.parent = parent_folder
+                    folder_grandparent = self._get_parent_folder(folder_parent, folder_objects)
+                    if folder_grandparent:
+                        folder_grandparent.add_folder(folder_parent)
+                        folder_parent.parent = folder_grandparent
                     folder_objects.append(folder_parent)
                 folder.parent = folder_parent
                 folder_parent.add_folder(folder)
