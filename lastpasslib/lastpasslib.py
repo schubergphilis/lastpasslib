@@ -391,8 +391,8 @@ class Lastpass:
                 split_path = tuple(secret.group.split('\\'))
                 is_personal = True
             if secret.shared_folder:
-                split_path = tuple([secret.shared_folder.shared_name] + secret.group.split('\\')) if secret.group\
-                             else tuple([secret.shared_folder.shared_name])
+                split_path = (tuple([secret.shared_folder.shared_name] + secret.group.split('\\'))
+                              if secret.group else tuple([secret.shared_folder.shared_name]))
                 is_personal = False
             folder_metadata = FolderMetadata(split_path,
                                              secret.group_id,
