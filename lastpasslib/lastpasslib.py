@@ -31,9 +31,11 @@ Main code for lastpasslib.
 
 """
 
+from base64 import b64encode
 import datetime
 import logging
 from collections import defaultdict
+import time
 from xml.etree import ElementTree as Etree
 from xml.etree.ElementTree import ParseError
 
@@ -41,6 +43,10 @@ import backoff
 import requests
 from dateutil.parser import parse
 from requests import Session
+import urllib3
+import urllib
+
+from lastpasslib.encryption import EncryptManager
 
 from .datamodels import CompanyUser, Event, Folder, FolderMetadata, SharedFolder
 from .lastpasslibexceptions import (ApiLimitReached,
@@ -1023,3 +1029,134 @@ class Lastpass:
         except Exception as exc:
             self._logger.debug(f'Error closing session, response: {exc}')
             return False
+
+    def create_secret(self, 
+                     name:str,
+                     url:str = None,
+                     folder:str = None,
+                     username:str = None,
+                     password:str = None,
+                     group:str = None,
+                     totp:str = None,
+                     notes:str = None,
+                     pwprotect:bool = False,
+                     auto_login:bool = False,
+                     autofill:bool = False,
+                     favorite:bool = False,
+                     encryption_key:bytes = None,
+                     iv:bytes = None):
+        """
+        Creates a secret. 
+        Depending on the folder, a different encryption key is used. 
+
+        TODO: Based on the folder path, fetch the correct encryption key
+            TODO: currently encryption keys can only be found on existing secrets, what if none exist for personal?
+            TODO: currently encryption keys can only be found on existing secrets, what if the folder is new?
+        
+        If we go this route, then secrets need to be fetched before people could use the lib to create secrets.
+        Should the user be notified?
+            
+        TODO: Check if the encryption key is set on folders, or only of secrets in those shared folders.
+
+        Args:
+            name (str): name
+            url (str, optional): url. Defaults to None.
+            folder (str, optional): folder. Defaults to None.
+            username (str, optional): username. Defaults to None.
+            password (str, optional): password. Defaults to None.
+            totp (str, optional): totp. Defaults to None.
+            notes (str, optional): notes. Defaults to None.
+            pwprotect (bool, optional): pwprotect. Defaults to False.
+            auto_login (bool, optional): auto_login. Defaults to False.
+            autofill (bool, optional): autofill. Defaults to False.
+            favorite (bool, optional): favorite. Defaults to False.
+            encryption_key (bytes, optional): encryption_key. Defaults to None.
+            iv (bytes, optional): iv. Defaults to None.
+
+        Returns:
+            _type_: _description_
+        """
+
+        # check if secrets & folders are already fetched.
+        if not self.folders:
+            print('Fetching secrets & folders, this might take a minute...')
+            self.folders
+        
+        # split
+
+        # folder, group = self._parse_folder_and_grouping_by_path(folder)
+        # encryption_key = folder.encryption_key # self._get_encryption_key_by_folder(folder)
+        # iv = EncryptManager.create_random_iv()
+        
+        # secret_schema = SecretSchema()
+        # local_args = copy.deepcopy(locals())
+
+        payload = {
+            'encuser': urllib.parse.quote(self.encrypted_username, safe=''),
+            'extjs': '1',
+            'source': 'vault',
+            'method': 'cr',
+            'ajax': '1',
+            'localupdate': '1',
+            'requestsrc': 'cr',
+            'aid': '0',
+            'urid': '0',
+            'requesthash': urllib3.parse.quote(self.encrypted_username, safe=''),
+            'sentms': f"{time.time_ns() // 1_000_000}",
+            'token': urllib3.parse.quote(self.csrf_token, safe=''),
+            'n': name.encode('utf-8').hex(),
+            'fav': 'on' if favorite else '',
+            'autologin': 'on' if auto_login else '',
+            'autofill': 'on' if auto_login else '',
+            'pwprotect': 'on' if pwprotect else '',
+            'extra': '',
+            'username': '',
+            'password': '',
+            'url': url.encode().hex() if url else '', 
+            'totp': self.encrypt_and_encode_payload(totp),
+            'extra': self.encrypt_and_encode_payload(notes),
+            'grouping': self.encrypt_and_encode_payload(group),
+            'username': self.encrypt_and_encode_payload(username),
+            'password': self.encrypt_and_encode_payload(password),
+        }
+
+        # if not folder.is_personal:
+        #     payload['sharedfolderid'] = folder.id # '268453651'
+
+        # for arg, value in local_args.items():
+        #     if not all([value and arg in secret_schema.plain_encrypted]):
+        #         continue
+        #     self._logger.debug(f'Encrypting property "{arg}".')
+        #     encrypted_attribute = EncryptManager.encrypt_aes256_cbc(iv, value.encode(), encryption_key)
+        #     url_encoded_data = urllib3.parse.quote(f'{b64encode(iv).decode("utf-8")}|{b64encode(encrypted_attribute).decode("utf-8")}', safe='')
+        #     data = f'!{url_encoded_data}'
+
+        #     if arg == 'mfa_seed':
+        #         payload['totp'] = data
+        #     elif arg == 'notes':
+        #         payload['extra'] = data
+        #     elif arg == 'group':
+        #         payload['grouping'] = data
+        #     else:            
+        #         payload[arg] = data
+
+        headers = {'content-type': 'application/x-www-form-urlencoded'}
+        payload_string = "&".join([f'{key}={value}' for key, value in payload.items()])
+        url = f'{self.host}/show.php'
+        response = self.session.post(url, headers=headers, data=payload_string)
+
+        return response
+
+def encrypt_and_encode_payload(self, payload:str, encryption_key:str, encryption) -> str:
+    """_summary_
+
+    Args:
+        payload (_type_): _description_
+        encryption_key (_type_): _description_
+    """
+    if not all([payload and encryption_key]):
+        return ''
+    iv = EncryptManager.create_random_iv()
+    encrypted_attribute = EncryptManager.encrypt_aes256_cbc(iv, payload.encode(), encryption_key)
+    url_encoded_data = urllib3.parse.quote(f'{b64encode(iv).decode("utf-8")}|{b64encode(encrypted_attribute).decode("utf-8")}', safe='')
+    return f'!{url_encoded_data}'
