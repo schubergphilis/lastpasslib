@@ -43,7 +43,6 @@ import backoff
 import requests
 from dateutil.parser import parse
 from requests import Session
-import urllib3
 import urllib
 
 from lastpasslib.encryption import EncryptManager
@@ -472,6 +471,17 @@ class Lastpass:
         if len(folders) > 1:
             raise MultipleInstances(f'multiple instances of {name} found')
         return folders.pop()
+
+    def get_folder_by_path(self, path: str) -> Folder:
+        """Gets a folder by path.
+
+        Args:
+            path (str): A string with '\\' as seperator.
+
+        Returns:
+            Folder: The first folder it matched on based on path. None if no match found.
+        """
+        return next((folder for folder in self.folders if folder.path == tuple(path.split('\\'))), None)
 
     @property
     def folders(self):
@@ -1033,7 +1043,7 @@ class Lastpass:
     def create_secret(self, 
                      name:str,
                      url:str = None,
-                     folder:str = None,
+                     folder_path:str = None,
                      username:str = None,
                      password:str = None,
                      group:str = None,
@@ -1042,26 +1052,15 @@ class Lastpass:
                      pwprotect:bool = False,
                      auto_login:bool = False,
                      autofill:bool = False,
-                     favorite:bool = False,
-                     encryption_key:bytes = None,
-                     iv:bytes = None):
+                     favorite:bool = False) -> bool:
         """
         Creates a secret. 
         Depending on the folder, a different encryption key is used. 
 
-        TODO: Based on the folder path, fetch the correct encryption key
-            TODO: currently encryption keys can only be found on existing secrets, what if none exist for personal?
-            TODO: currently encryption keys can only be found on existing secrets, what if the folder is new?
-        
-        If we go this route, then secrets need to be fetched before people could use the lib to create secrets.
-        Should the user be notified?
-            
-        TODO: Check if the encryption key is set on folders, or only of secrets in those shared folders.
-
         Args:
             name (str): name
             url (str, optional): url. Defaults to None.
-            folder (str, optional): folder. Defaults to None.
+            folder_path (str, optional): folder. Defaults to None.
             username (str, optional): username. Defaults to None.
             password (str, optional): password. Defaults to None.
             totp (str, optional): totp. Defaults to None.
@@ -1074,89 +1073,149 @@ class Lastpass:
             iv (bytes, optional): iv. Defaults to None.
 
         Returns:
-            _type_: _description_
+            bool: True at success, False at failure.
         """
 
-        # check if secrets & folders are already fetched.
         if not self.folders:
             print('Fetching secrets & folders, this might take a minute...')
             self.folders
         
-        # split
-
-        # folder, group = self._parse_folder_and_grouping_by_path(folder)
-        # encryption_key = folder.encryption_key # self._get_encryption_key_by_folder(folder)
-        # iv = EncryptManager.create_random_iv()
-        
-        # secret_schema = SecretSchema()
-        # local_args = copy.deepcopy(locals())
+        split_folder_path = folder_path.split('\\')
+        folder = self.get_folder_by_path(split_folder_path[0])
+        if not folder:
+            self._logger.error(f'No folder found for path {split_folder_path[0]}')
+            return False
 
         payload = {
+            'aid': '0',
+            'ajax': '1',
+            'auto': '1',
+            'autofill': 'on' if autofill else '',
+            'autologin': 'on' if auto_login else '',
             'encuser': urllib.parse.quote(self.encrypted_username, safe=''),
             'extjs': '1',
-            'source': 'vault',
-            'method': 'cr',
-            'ajax': '1',
-            'localupdate': '1',
-            'requestsrc': 'cr',
-            'aid': '0',
-            'urid': '0',
-            'requesthash': urllib.parse.quote(self.encrypted_username, safe=''),
-            'sentms': f"{time.time_ns() // 1_000_000}",
-            'token': urllib.parse.quote(self.csrf_token, safe=''),
-            'n': name.encode('utf-8').hex(),
+            'extra': self.encrypt_and_encode_payload(notes, folder.encryption_key),
             'fav': 'on' if favorite else '',
-            'autologin': 'on' if auto_login else '',
-            'autofill': 'on' if auto_login else '',
+            'folder': 'none',
+            'grouping': '' if 2 > len(split_folder_path) else
+              self.encrypt_and_encode_payload(str(split_folder_path[1:]), folder.encryption_key),
+            'localupdate': '1',
+            'method': 'cr',
+            'n': name.encode('utf-8').hex(),
+            'name': urllib.parse.quote(self.encrypted_username, safe=''),
+            'password': self.encrypt_and_encode_payload(password, folder.encryption_key),
             'pwprotect': 'on' if pwprotect else '',
-            'extra': '',
-            'username': '',
-            'password': '',
+            'requesthash': urllib.parse.quote(self.encrypted_username, safe=''),
+            'requestsrc': 'cr',
+            'sentms': f"{time.time_ns() // 1_000_000}",
+            'source': 'vault',
+            'token': urllib.parse.quote(self.csrf_token, safe=''),
+            'totp': self.encrypt_and_encode_payload(totp, folder.encryption_key),
+            'urid': '0',
             'url': url.encode().hex() if url else '', 
-            'totp': self.encrypt_and_encode_payload(totp),
-            'extra': self.encrypt_and_encode_payload(notes),
-            'grouping': self.encrypt_and_encode_payload(group),
-            'username': self.encrypt_and_encode_payload(username),
-            'password': self.encrypt_and_encode_payload(password),
+            'username': self.encrypt_and_encode_payload(username, folder.encryption_key),
         }
-
-        # if not folder.is_personal:
-        #     payload['sharedfolderid'] = folder.id # '268453651'
-
-        # for arg, value in local_args.items():
-        #     if not all([value and arg in secret_schema.plain_encrypted]):
-        #         continue
-        #     self._logger.debug(f'Encrypting property "{arg}".')
-        #     encrypted_attribute = EncryptManager.encrypt_aes256_cbc(iv, value.encode(), encryption_key)
-        #     url_encoded_data = urllib3.parse.quote(f'{b64encode(iv).decode("utf-8")}|{b64encode(encrypted_attribute).decode("utf-8")}', safe='')
-        #     data = f'!{url_encoded_data}'
-
-        #     if arg == 'mfa_seed':
-        #         payload['totp'] = data
-        #     elif arg == 'notes':
-        #         payload['extra'] = data
-        #     elif arg == 'group':
-        #         payload['grouping'] = data
-        #     else:            
-        #         payload[arg] = data
 
         headers = {'content-type': 'application/x-www-form-urlencoded'}
         payload_string = "&".join([f'{key}={value}' for key, value in payload.items()])
         url = f'{self.host}/show.php'
         response = self.session.post(url, headers=headers, data=payload_string)
+        if not response.ok:
+            self._logger.error(response.json())
+        return True if response.ok else False
 
-        return response
+    def create_secure_note(self, 
+                          name:str,
+                          folder_path:str = None,
+                          notes:str = None,
+                          favorite:bool = False) -> bool:
 
-def encrypt_and_encode_payload(self, payload:str, encryption_key:str, encryption) -> str:
-    """_summary_
+        if not self.folders:
+            print('Fetching secrets & folders, this might take a minute...')
+            self.folders
+        
+        split_folder_path = folder_path.split('\\')
+        folder = self.get_folder_by_path(split_folder_path[0])
+        if not folder:
+            self._logger.error(f'No folder found for path {split_folder_path[0]}')
+            return False
 
-    Args:
-        payload (_type_): _description_
-        encryption_key (_type_): _description_
-    """
-    if not all([payload and encryption_key]):
-        return ''
-    iv = EncryptManager.create_random_iv()
-    encrypted_attribute = EncryptManager.encrypt_aes256_cbc(iv, payload.encode(), encryption_key)
-    url_encoded_data = urllib3.parse.quote(f'{b64encode(iv).decode("utf-8")}|{b64encode(encrypted_attribute).decode("utf-8")}', safe='')
-    return f'!{url_encoded_data}'
+        payload = {
+            'aid': '0',
+            'ajax': '1',
+            'encuser': urllib.parse.quote(self.encrypted_username, safe=''),
+            'extjs': '1',
+            'extra': self.encrypt_and_encode_payload(notes, folder.encryption_key),
+            'fav': 'on' if favorite else '',
+            'grouping': '' if 2 > len(split_folder_path) else
+              self.encrypt_and_encode_payload(str(split_folder_path[1:]), folder.encryption_key),
+            'localupdate': '1',
+            'method': 'cr',
+            'n': name.encode('utf-8').hex(),
+            'name': self.encrypt_and_encode_payload(name, folder.encryption_key),
+            'notetype': 'Generic',
+            'requesthash': urllib.parse.quote(self.encrypted_username, safe=''),
+            'requestsrc': 'cr',
+            'sentms': f"{time.time_ns() // 1_000_000}",
+            'source': 'vault',
+            'token': urllib.parse.quote(self.csrf_token, safe=''),
+        }
+
+        headers = {'content-type': 'application/x-www-form-urlencoded'}
+        payload_string = "&".join([f'{key}={value}' for key, value in payload.items()])
+        url = f'{self.host}/show.php'
+        response = self.session.post(url, headers=headers, data=payload_string)
+        if not response.ok:
+            self._logger.error(response.json())
+        return True if response.ok else False
+
+            # 'sharedfolderid': '' if folder.is_personal else folder.id,
+
+        # {'aid': '1976393948714408416',
+        # 'ajax': '1',
+        # 'auto': '1',
+        # 'encuser': 'ug9gDSznxVjBPOHbhytk7paQXix8XHy4FVcByt6PZBs%3D',
+        # 'extjs': '1',
+        # 'extra': '!BXGTCiCIMwrxxMHxvfg5zQ%3D%3D%7CgrxiFUtqDXpgHtme539VXw%3D%3D',
+        # 'fav': 'on',
+        # 'grouping': '',
+        # 'hasplugin': '4.119.0',
+        # 'hexName': '796f7269636b2d746573742d7365637572652d6e6f7465',
+        # 'iid': '',
+        # 'localupdate': '1',
+        # 'lpversion': '4.119.0',
+        # 'method': 'cr',
+        # 'n': '796f7269636b2d746573742d7365637572652d6e6f7465',
+        # 'name': '!ywOTacVJSqvLZnTQJXKXSg%3D%3D%7C9dDK7P8ZkV0vjZnD8xk9rpl1%2Fxq%2Bzr4vMeJqipAxSFI%3D',
+        # 'notetype': 'Generic',
+        # 'password': '',
+        # 'pwprotect': 'on',
+        # 'requesthash': 'ug9gDSznxVjBPOHbhytk7paQXix8XHy4FVcByt6PZBs%3D',
+        # 'requestsrc': 'cr',
+        # 'requid': '128589502',
+        # 'sentms': '1690824619323',
+        # 'sessonly': '0',
+        # 'sharedfolderid': '268453651',
+        # 'source': 'vault',
+        # 'template': '',
+        # 'token': 'X2c2R1lkbUdLOW40TkZqblgt47A6%2FrvJH%2F8skjFzPKxXFzUgrVFjToNqVz0AryRKW4g%3D',
+        # 'totp': '',
+        # 'u': '687474703a2f2f736e',
+        # 'url': '687474703a2f2f736e',
+        # 'username': '',
+        # 'wxsessid': '9i1mh0unb3duefh1473tg7kcrc3'}
+
+
+    def encrypt_and_encode_payload(self, payload:str, encryption_key:str) -> str:
+        """_summary_
+
+        Args:
+            payload (_type_): _description_
+            encryption_key (_type_): _description_
+        """
+        if not all([payload and encryption_key]):
+            return ''
+        iv = EncryptManager.create_random_iv()
+        encrypted_attribute = EncryptManager.encrypt_aes256_cbc(iv, payload.encode(), encryption_key)
+        url_encoded_data = urllib.parse.quote(f'{b64encode(iv).decode("utf-8")}|{b64encode(encrypted_attribute).decode("utf-8")}', safe='')
+        return f'!{url_encoded_data}'
