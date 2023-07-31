@@ -32,6 +32,7 @@ Main code for datamodels.
 """
 
 from dataclasses import dataclass, field
+from typing import Optional
 
 from dateutil.parser import parse
 
@@ -106,39 +107,6 @@ class Chunk:
     id: bytes
     payload_size: bytes
     payload: bytes
-
-
-@dataclass
-class SharedFolder:
-    """Models data of a shared folder."""
-
-    id: str
-    read_only: str
-    give: str
-    name: str
-    deleted: str
-    last_modified: str
-    association: str
-    can_administer: str
-    invisible: str
-    created: str
-    cgid: str
-    download: str
-    outside_enterprise: str
-    cid: str
-    share_data: str = ''
-    sharer: str = ''
-    shared_name: str = ''
-
-    @property
-    def last_modified_datetime(self):
-        """Datetime object of the last modified date."""
-        return parse(self.last_modified)
-
-    def __str__(self):
-        attributes = ['id', 'name', 'read_only', 'deleted', 'created', 'last_modified', 'sharer']
-        values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
-        return f'{values}\n\n'
 
 
 @dataclass
@@ -220,6 +188,8 @@ class ShareAction:
 class Folder:
     name: str
     path: tuple
+    id: Optional[str]
+    encryption_key: str
     parent: 'Folder' = None
     folders: list = field(default_factory=list)
     secrets: list = field(default_factory=list)
@@ -244,6 +214,47 @@ class Folder:
 
     def add_folders(self, folders):
         self.folders.extend(folders)
+
+
+@dataclass(frozen=True, order=True)
+class FolderMetadata:
+    path: tuple
+    id: Optional[str]
+    encryption_key: str
+    is_personal: bool
+
+
+@dataclass
+class SharedFolder:
+    """Models data of a shared folder."""
+
+    id: str
+    read_only: str
+    give: str
+    name: str
+    deleted: str
+    last_modified: str
+    association: str
+    can_administer: str
+    invisible: str
+    created: str
+    cgid: str
+    download: str
+    outside_enterprise: str
+    cid: str
+    share_data: str = ''
+    sharer: str = ''
+    shared_name: str = ''
+
+    @property
+    def last_modified_datetime(self):
+        """Datetime object of the last modified date."""
+        return parse(self.last_modified)
+
+    def __str__(self):
+        attributes = ['id', 'name', 'read_only', 'deleted', 'created', 'last_modified', 'sharer']
+        values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
+        return f'{values}\n\n'
 
 
 @dataclass

@@ -42,7 +42,7 @@ import requests
 from dateutil.parser import parse
 from requests import Session
 
-from .datamodels import CompanyUser, Event, Folder, SharedFolder
+from .datamodels import CompanyUser, Event, Folder, FolderMetadata, SharedFolder
 from .lastpasslibexceptions import (ApiLimitReached,
                                     InvalidMfa,
                                     InvalidPassword,
@@ -382,17 +382,24 @@ class Lastpass:
 
         """
         root_folder_data = {'\\': []}
-        personal_folders_data = defaultdict(list)
-        shared_folders_data = defaultdict(lambda: defaultdict(list))
+        folders_data = defaultdict(list)
         for secret in secrets:
-            split_path = tuple(secret.group.split('\\'))
-            if secret.group_id:
-                personal_folders_data[split_path].append(secret)
-            elif secret.shared_folder:
-                shared_folders_data[secret.shared_folder.shared_name][split_path].append(secret)
-            else:
+            if not any([secret.group_id, secret.shared_folder]):
                 root_folder_data['\\'].append(secret)
-        return root_folder_data, personal_folders_data, shared_folders_data
+                continue
+            if secret.group_id:
+                split_path = tuple(secret.group.split('\\'))
+                is_personal = True
+            if secret.shared_folder:
+                split_path = (tuple([secret.shared_folder.shared_name] + secret.group.split('\\'))
+                              if secret.group else tuple([secret.shared_folder.shared_name]))
+                is_personal = False
+            folder_metadata = FolderMetadata(split_path,
+                                             secret.group_id,
+                                             secret.encryption_key,
+                                             is_personal=is_personal)
+            folders_data[folder_metadata].append(secret)
+        return root_folder_data, folders_data
 
     @staticmethod
     def _get_parent_folder(folder, folders):
@@ -409,20 +416,27 @@ class Lastpass:
         return next((parent_folder for parent_folder in folders
                      if tuple(folder.path[:-1]) == parent_folder.path), None)  # noqa
 
-    def _get_folder_objects(self, secrets_by_path, root_folder=None, is_personal=False):
+    def _get_folder_objects(self, secrets_by_path, root_folder=None):
         folder_objects = []
-        for folder_path, secrets in sorted(secrets_by_path.items()):
-            folder = Folder(folder_path[-1], folder_path, is_personal=is_personal)
+        for folder_metadata, secrets in sorted(secrets_by_path.items()):
+            folder = Folder(folder_metadata.path[-1],
+                            folder_metadata.path,
+                            folder_metadata.id,
+                            folder_metadata.encryption_key,
+                            is_personal=folder_metadata.is_personal)
             folder.add_secrets(secrets)
-            if len(folder.path) > 1:  #
+            if len(folder.path) > 1:
                 folder_parent = self._get_parent_folder(folder, folder_objects)
                 if not folder_parent:
-                    folder_parent = Folder(folder.path[-2], tuple(folder.path[:-1]), is_personal=is_personal)
-                    parent_folder = self._get_parent_folder(folder_parent, folder_objects)
-                    if not parent_folder:
-                        continue
-                    parent_folder.add_folder(folder_parent)
-                    folder_parent.parent = parent_folder
+                    folder_parent = Folder(folder.path[-2],
+                                           tuple(folder.path[:-1]),
+                                           id=None,
+                                           encryption_key=folder.encryption_key,
+                                           is_personal=folder_metadata.is_personal)
+                    folder_grandparent = self._get_parent_folder(folder_parent, folder_objects)
+                    if folder_grandparent:
+                        folder_grandparent.add_folder(folder_parent)
+                        folder_parent.parent = folder_grandparent
                     folder_objects.append(folder_parent)
                 folder.parent = folder_parent
                 folder_parent.add_folder(folder)
@@ -432,27 +446,6 @@ class Lastpass:
                     root_folder.add_folder(folder)
             folder_objects.append(folder)
         return folder_objects
-
-    @staticmethod
-    def _get_shared_folder_objects(folder_name, folders):
-        """Normalises the folder structure of a shared folder.
-
-         Prepends the shared folder name in the path of all the children folders making the structure one level less.
-
-        Args:
-            folder_name: The name of the shared folder.
-            folders: The list of all folders.
-
-        Returns:
-            A new structure for all children folders of a shared folder with the shared folder name part of their path.
-
-        """
-        root_secrets = folders.get(('',), [])
-        if root_secrets:
-            del folders[('',)]
-        folders = {(folder_name,) + folder: secrets for folder, secrets in folders.items()}
-        folders.update({(folder_name,): root_secrets})
-        return folders
 
     def get_folder_by_name(self, name):
         """Gets a folder by name.
@@ -483,14 +476,15 @@ class Lastpass:
 
         """
         if self._folders is None:
-            root_folder_data, personal_folders, shared_folders = self._parse_folder_groups(self.get_secrets())
-            root_folder = Folder('\\', ('\\',), is_personal=True)
+            root_folder_data, folders_data = self._parse_folder_groups(self.get_secrets())
+            root_folder = Folder('\\',
+                                 ('\\',),
+                                 id=None,
+                                 encryption_key=self._vault._key,
+                                 is_personal=True)
             root_folder.secrets.extend(root_folder_data.get('\\'))
             all_folders = [root_folder]
-            all_folders.extend(self._get_folder_objects(personal_folders, root_folder, is_personal=True))
-            for name, folders in shared_folders.items():
-                shared_folder = self._get_shared_folder_objects(name, folders)
-                all_folders.extend(self._get_folder_objects(shared_folder, root_folder))
+            all_folders.extend(self._get_folder_objects(folders_data, root_folder))
             self._folders = all_folders
         return self._folders
 
