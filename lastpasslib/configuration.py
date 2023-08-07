@@ -42,3 +42,41 @@ __email__ = '''<ctyfoxylos@schubergphilis.com>'''
 __status__ = '''Development'''  # "Prototype", "Development", "Production".
 
 LASTPASS_VERSION = '4.108.1'
+
+class Configurations:
+   secret_payload = {
+      'aid': '0',
+      'ajax': '1',
+      'auto': '1',
+      'extjs': '1',
+      'folder': 'none',
+      'localupdate': '1',
+      'method': 'cr',
+      'requestsrc': 'cr',
+      'source': 'vault',
+      'urid': '0',
+   }
+   secure_note_payload = {
+      'aid': '0',
+      'auto': '1',
+      'ajax': '1',
+      'extjs': '1',
+      'localupdate': '1',
+      'method': 'cr',
+      'notetype': 'Generic',
+      'password': '',
+      'requestsrc': 'cr',
+      'source': 'vault',
+      'template': '',
+      'u': '',
+      'url': '',
+      'username': '',
+      'totp': '',
+   }
+   move_secrets_payload = {
+      'cmd': 'uploadaccounts',
+      'pwprotect0': '0',
+      'realm0': '',
+      'requestsrc': 'cr',
+      'type0': 'cr',
+   }
