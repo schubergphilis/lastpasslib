@@ -494,7 +494,7 @@ class Lastpass:
         if not secrets:
             return None
         if len(secrets) > 1:
-            raise MultipleInstances(f'More than one secrets with name {name} exist.')
+            raise MultipleInstances(f'More than one secrets with name "{name}" exist.')
         return secrets.pop()
 
     def get_secret_by_id(self, id_):
@@ -635,6 +635,7 @@ class Lastpass:
         if not secret:
             self._logger.error(f'Secret with id "{id_}" not found.')
             return False
+        self._logger.error(f'Deleting secret with id "{id_}".')
         return secret.delete()
 
     def get_passwords(self):
