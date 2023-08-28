@@ -32,15 +32,18 @@ Main code for secrets.
 """
 
 import base64
+from dataclasses import dataclass
 import logging
 import time
 from copy import copy
 from datetime import datetime
 from pathlib import Path
+from dateutil.parser import parse
 
 from .configuration import LASTPASS_VERSION
 from .datamodels import History, ShareAction
 from .encryption import EncryptManager
+import urllib
 
 LOGGER_BASENAME = 'secrets'
 LOGGER = logging.getLogger(LOGGER_BASENAME)
@@ -56,6 +59,62 @@ __maintainer__ = '''Costas Tyfoxylos'''
 __email__ = '''<ctyfoxylos@schubergphilis.com>'''
 __status__ = '''Development'''  # "Prototype", "Development", "Production".
 
+
+@dataclass
+class History:
+    """Models data of a history event on the server."""
+
+    date: str
+    value: str
+    person: str
+
+    @property
+    def datetime(self):
+        """Datetime object of the date."""
+        return parse(self.date)
+
+    def __str__(self):
+        attributes = ['date', 'person', 'value']
+        values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
+        return f'{values}\n\n'
+
+
+@dataclass
+class ShareAction:
+    """Models data of a share action of a secret."""
+
+    company_username: str
+    date: str
+    email: str
+    give: str
+    share_date: str
+    state: str
+    _uid: str
+
+    @property
+    def id(self):
+        """ID of the share action, correlates with the ID of the user part of the share."""
+        return self._uid
+
+    @property
+    def share_datetime(self):
+        """Datetime object of the share date."""
+        return parse(self.share_date)
+
+    @property
+    def datetime(self):
+        """Datetime object of the date."""
+        return parse(self.date)
+
+    @property
+    def accepted(self):
+        """Boolean of the accepted status of the share."""
+        return bool(int(self.state))
+
+    @property
+    def given(self):
+        """Boolean of the given status of the share."""
+        return bool(int(self.give))
 
 class Secret:
     """Models the secret and exposes the main attributes that are shared across Passwords and Secure Notes."""
