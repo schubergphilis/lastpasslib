@@ -31,6 +31,8 @@ Main code for vault.
 
 """
 
+from collections import defaultdict
+from dataclasses import dataclass
 import json
 import logging
 import re
@@ -41,7 +43,7 @@ from pathlib import Path
 from Crypto.Cipher import PKCS1_OAEP
 from binascii import hexlify
 
-from .datamodels import NeverUrl, EquivalentDomain, UrlRule, DecryptedVault
+from .datamodels import Folder, FolderMetadata, NeverUrl, EquivalentDomain, SharedFolder, UrlRule
 from .dataschemas import SecretSchema, SharedFolderSchema, AttachmentSchema
 from .encryption import Blob, EncryptManager, Stream
 from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom, FolderEntry
@@ -129,13 +131,16 @@ class Vault:
         never_urls = self._get_never_urls(blob)
         equivalent_domains = self._get_eqdns(blob)
         url_rules = self._get_url_rules(blob)
-        secrets, attachments, folder_entries = self._get_secrets_folders_and_attachments(blob, attachments_data)
-        return DecryptedVault(encrypted_username,
+        secrets, attachments, folder_entries, shared_folders = self._get_secrets_folders_and_attachments(blob, attachments_data)
+        encryption_key = self.key
+        return DecryptedVault(self._lastpass,
+                              encrypted_username,
                               attachments,
                               never_urls,
                               equivalent_domains,
                               url_rules, secrets,
-                              folder_entries)
+                              encryption_key, folder_entries,
+                              shared_folders)
 
     @staticmethod
     def _get_attribute_payload_data(stream, attributes):
@@ -205,6 +210,7 @@ class Vault:
         secrets = []
         attachments = []
         folder_entries = []
+        shared_folders = []
         key = self.key
         rsa_private_key = None
         shared_folder = None
@@ -219,7 +225,7 @@ class Vault:
                                                                               secrets,
                                                                               folder_entries)
                 # We want to skip any possible error so the process completes and we gather the errors so they can be
-                # troubleshot
+                # troubleshoot
                 except Exception:  # noqa
                     self._logger.exception('Unable to decrypt chunk, adding to the error list.')
                     self.unable_to_decrypt.append((chunk, key))
@@ -230,11 +236,13 @@ class Vault:
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
                 data = self._parse_shared_folder(chunk.payload, self.key, rsa_private_key)
-                shared_folder = self._lastpass._get_shared_folder_by_id(data.get('id'))  # pylint: disable=protected-access
-                if shared_folder:
-                    shared_folder.shared_name = data.get('name')
+                shared_folder_data = self._lastpass._get_shared_folder_data_by_id(data.get('id'))  # pylint: disable=protected-access
+                if shared_folder_data:
+                    shared_folder_data['shared_name'] = data.get('name')
+                    shared_folder = SharedFolder(*shared_folder_data.values())
+                    shared_folders.append(shared_folder)
                 key = data.get('key')
-        return secrets, attachments, folder_entries
+        return secrets, attachments, folder_entries, shared_folders
 
     @staticmethod
     def _parse_url_rules(payload):

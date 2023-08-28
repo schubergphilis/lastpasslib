@@ -92,7 +92,7 @@ class Lastpass:
         self._authenticated_response_data = None
         self.session = self._get_authenticated_session(username, mfa)
         self._monkey_patch_session()
-        self._shared_folders_ = None
+        self._shared_folders_data_ = None
         self._folders = None
         self._decrypted_vault = None
 
@@ -242,9 +242,9 @@ class Lastpass:
         return session
 
     @property
-    def _shared_folders(self):
+    def _shared_folders_data(self):
         """A list of the shared folders of lastpass."""
-        if self._shared_folders_ is None:
+        if self._shared_folders_data_ is None:
             url = f'{self.host}/getSharedFolderInfo.php'
             data = {'lpversion': '4.0',
                     'method': 'web',
@@ -252,11 +252,11 @@ class Lastpass:
             response = self.session.post(url, data=data)
             if not response.ok:
                 response.raise_for_status()
-            self._shared_folders_ = [SharedFolder(*data.values()) for data in response.json().get('folders')]
+            self._shared_folders_data_ = [data for data in response.json().get('folders')]
             # response.json().get('superusers') exposes a {uid: , key:} dictionary of superusers.
-        return self._shared_folders_
+        return self._shared_folders_data_
 
-    def _get_shared_folder_by_id(self, id_):
+    def _get_shared_folder_data_by_id(self, id_):
         """Gets a shared folder by id.
 
         Used to connect the shared folders with the appropriate secrets in the decryption process of the vault.
@@ -268,7 +268,7 @@ class Lastpass:
             A shared folder object if a match is found, else None
 
         """
-        return next((folder for folder in self._shared_folders if folder.id == id_), None)
+        return next((folder for folder in self._shared_folders_data if folder.get('shareid') == id_), None)
 
     def get_login_history_by_date(self, start_date=None, end_date=None):
         """Get login history events by a range of dates.
@@ -511,18 +511,7 @@ class Lastpass:
             A list of all the folders of the vault.
 
         """
-        if self._folders is None:
-            root_folder_data, folders_data = self._parse_folder_groups(self.get_secrets())
-            root_folder = Folder('\\',
-                                 ('\\',),
-                                 id=None,
-                                 encryption_key=self._vault._key,
-                                 is_personal=True)
-            root_folder.secrets.extend(root_folder_data.get('\\'))
-            all_folders = [root_folder]
-            all_folders.extend(self._get_folder_objects(folders_data, root_folder))
-            self._folders = all_folders
-        return self._folders
+        return self.decrypted_vault.folders
 
     @property
     def root_folder(self):
@@ -555,11 +544,7 @@ class Lastpass:
             list: A list of shared folders.
 
         """
-        shared_names = [folder.shared_name for folder in self._shared_folders]
-        return [folder for folder in self.folders
-                if all([not folder.is_personal,
-                        folder.name in shared_names,
-                        len(folder.path) == 1])]
+        return [folder for folder in self.folders if all([not folder.is_personal, len(folder.path) == 1])]
 
     def get_secrets(self, filter_=None):
         """Gets secrets from the vault.
