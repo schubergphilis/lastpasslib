@@ -75,8 +75,11 @@ class Configurations:
    }
    move_secrets_payload = {
       'cmd': 'uploadaccounts',
+      'hasplugin': '4.119.0',
+      'lpversion': '4.119.0',
       'pwprotect0': '0',
       'realm0': '',
       'requestsrc': 'cr',
+      'sessonly': '0',
       'type0': 'cr',
    }
