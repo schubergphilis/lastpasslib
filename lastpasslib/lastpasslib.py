@@ -31,10 +31,10 @@ Main code for lastpasslib.
 
 """
 
-from base64 import b64encode
 import datetime
+from functools import partial
 import logging
-from collections import defaultdict
+import re
 import time
 from xml.etree import ElementTree as Etree
 from xml.etree.ElementTree import ParseError
@@ -45,14 +45,12 @@ from dateutil.parser import parse
 from requests import Session
 import urllib
 
-from lastpasslib.encryption import EncryptManager
-
-from .datamodels import CompanyUser, Event, Folder, FolderMetadata, SharedFolder
+from .datamodels import CompanyUser, Event, Folder
 from .lastpasslibexceptions import (ApiLimitReached,
                                     InvalidMfa,
                                     InvalidPassword,
                                     InvalidSecretType,
-                                    MfaRequired,
+                                    MfaRequired, MissingResult,
                                     MultipleInstances,
                                     ServerError,
                                     UnexpectedResponse,
@@ -60,7 +58,7 @@ from .lastpasslibexceptions import (ApiLimitReached,
                                     UnknownUsername,
                                     MobileDevicesRestricted)
 from .configuration import Configurations
-from .secrets import SECURE_NOTE_TYPES
+from .secrets import SECURE_NOTE_TYPES, Payload
 from .vault import Vault
 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
@@ -86,6 +84,7 @@ class Lastpass:
         self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
         self.domain = domain
         self.host = f'https://{domain}'
+        self.api_endpoint_show = f"{self.host}/show.php"
         self.username = username
         self._iteration_count = None
         self._vault = Vault(self, password)
@@ -194,22 +193,20 @@ class Lastpass:
             raise exception(message)
         return parsed_response
 
-    # @staticmethod
-    # def _validate_action_response(response):
-    #     if not response.ok:
-    #         response.raise_for_status()
-    #     try:
-    #         parsed_response = Etree.fromstring(response.content)
-    #     except ParseError:
-    #         raise UnexpectedResponse(response.text) from None
-    #     result = parsed_response.find('result')
-    #     if result is not None:
-    #         action = result.attrib.get('action')
-    #         LOGGER.error(f'Got a server error :{action}')
-    #         raise
-    #     return parsed_response 
-    
-    # # TODO: _validate_action_response (check if the response is the same for post/delete actions)
+    @staticmethod
+    def _validate_action_response(response):
+        if not response.ok:
+            response.raise_for_status()
+        try:
+            parsed_response = Etree.fromstring(response.content)
+        except ParseError:
+            raise UnexpectedResponse(response.text) from None
+        result = parsed_response.find('result')
+        if result is None:
+            message = f'Got a server error: {repr(response.text)}'
+            LOGGER.error(message)
+            raise MissingResult(message)
+        return parsed_response
 
     @staticmethod
     def _extend_payload_for_mfa(mfa, payload):
@@ -255,6 +252,20 @@ class Lastpass:
             self._shared_folders_data_ = list(response.json().get('folders'))
             # response.json().get('superusers') exposes a {uid: , key:} dictionary of superusers.
         return self._shared_folders_data_
+
+    def _get_folder_by_id(self, id_: str):
+        """Gets a folder by id.
+
+        Used to retrieve the personal folder by id.
+
+        Args:
+            id_ (str): The id to match the folder.
+
+        Returns:
+            A folder object if a match is found, else None.
+
+        """
+        return next((folder for folder in self.folders if folder.id == id_), None)
 
     def _get_shared_folder_data_by_id(self, id_):
         """Gets a shared folder by id.
@@ -916,7 +927,7 @@ class Lastpass:
 
     @staticmethod
     def _validate_filter(filter_):
-        all_types = SECURE_NOTE_TYPES + ['Password']
+        all_types = SECURE_NOTE_TYPES + ['Password', 'SecureNote']
         filter_ = filter_ or all_types
         if not isinstance(filter_, (tuple, list)):
             filter_ = [filter_]
@@ -965,11 +976,12 @@ class Lastpass:
             self._logger.debug(f'Error closing session, response: {exc}')
             return False
 
-    def _get_grouping_by_folder_path(self, folder_path:str, folder_is_personal=False):
-        """All folders after the root & shared folders are addressed by the term 'grouping'.
+    def _get_grouping_by_folder_path(self, folder_path: str, folder_is_personal=False):
+        r"""All folders after the root & shared folders are addressed by the term 'grouping'.
+
           For the path 'FolderA\FolderB'
           If it's a personal folder the grouping is the whole path.
-          In the case of a shared folder 'FolderA' is stripped. 
+          In the case of a shared folder 'FolderA' is stripped.
 
         Args:
             folder_path (str): the path to the folders
@@ -977,14 +989,16 @@ class Lastpass:
 
         Returns:
             str: returns the grouping path.
+
         """
         if not folder_path:
             return ''
+        folder_path = folder_path.encode('unicode_escape').decode('utf-8')
         if folder_is_personal:
             return folder_path
-        return folder_path.split('\\', 1)[1]
+        return re.split(r'[\\]+', folder_path, 1)[1]
 
-    def _get_base_folder_by_path(self, folder_path:str) -> Folder:
+    def _get_base_folder_by_path(self, folder_path: str) -> Folder:
         """Get the first folder specified in the given path.
 
         Args:
@@ -992,34 +1006,59 @@ class Lastpass:
 
         Returns:
             Folder: Folder object is folder is found, None otherwise.
+
         """
-        base_path = '' if not folder_path else folder_path.split('\\')[0]
+        if not folder_path:
+            return self.get_folder_by_name('\\')
+        folder_path = folder_path.encode('unicode_escape').decode('utf-8')
+        base_path = '' if not folder_path else re.split(r'[\\]+', folder_path)[0]
         folder = self.get_folder_by_path(base_path)
         if not folder:
             self._logger.error(f'No folder found for path {base_path}')
             return None
         return folder
 
-    def create_secret(self, 
-                     name:str,
-                     url:str = None,
-                     folder_path:str = None,
-                     username:str = None,
-                     password:str = None,
-                     totp:str = None,
-                     notes:str = None,
-                     pwprotect:bool = False,
-                     auto_login:bool = False,
-                     autofill:bool = False,
-                     favorite:bool = False) -> bool:
+    def _create_secret(self, type_: str, name: str, remote_payload: dict):
+        """Function used to create any kind of secret.
+
+        Args:
+            type_ (str): type of secret.
+            name (str): name.
+            remote_payload (dict): payload.
+
+        Returns:
+            Response: the response from the API server.
+
         """
-        Creates a secret. 
-        Depending on the folder, a different encryption key is used. 
+        payload_string = "&".join([f'{key}={value}' for key, value in remote_payload.items()])
+        headers = {'content-type': 'application/x-www-form-urlencoded'}
+        url = f'{self.host}/show.php'
+        response = self.session.post(url, headers=headers, data=payload_string)
+        if not response.ok:
+            self._logger.error(response.json())
+        result = self._validate_action_response(response)
+        self._logger.info(f'{type_.capitalize()} "{name}" created.')
+        return result
+
+    def create_password(self,
+                        name: str,
+                        url: str = None,
+                        folder_path: str = None,
+                        username: str = None,
+                        password: str = None,
+                        totp: str = None,
+                        notes: str = None,
+                        pwprotect: bool = False,
+                        auto_login: bool = False,
+                        autofill: bool = False,
+                        favorite: bool = False) -> bool:
+        """
+        Creates a password.
 
         Args:
             name (str): name
             url (str, optional): url. Defaults to None.
-            folder_path (str, optional): folder. Defaults to None.
+            folder_path (str, optional): folder path. Defaults to None.
             username (str, optional): username. Defaults to None.
             password (str, optional): password. Defaults to None.
             totp (str, optional): totp. Defaults to None.
@@ -1028,144 +1067,127 @@ class Lastpass:
             auto_login (bool, optional): auto_login. Defaults to False.
             autofill (bool, optional): autofill. Defaults to False.
             favorite (bool, optional): favorite. Defaults to False.
-            encryption_key (bytes, optional): encryption_key. Defaults to None.
-            iv (bytes, optional): iv. Defaults to None.
 
         Returns:
             bool: True at success, False at failure.
-        """
 
+        """
+        type_ = 'password'
         base_folder = self._get_base_folder_by_path(folder_path)
         grouping = self._get_grouping_by_folder_path(folder_path, base_folder.is_personal)
-        iv = EncryptManager.create_random_iv()
-        payload = {
+        encrypt_and_encode = partial(Payload._encrypt_and_encode_payload, base_folder.encryption_key)
+        remote_payload = {
             'autofill': 'on' if autofill else '',
             'autologin': 'on' if auto_login else '',
             'encuser': urllib.parse.quote(self.encrypted_username, safe=''),
-            'extra': self._encrypt_and_encode_payload(notes, base_folder.encryption_key, iv),
+            'extra': encrypt_and_encode(notes),
             'fav': 'on' if favorite else '',
-            'grouping': '' if not grouping else self._encrypt_and_encode_payload(grouping, base_folder.encryption_key, iv),
+            'grouping': encrypt_and_encode(grouping),
             'n': name.encode('utf-8').hex(),
-            'name': self._encrypt_and_encode_payload(name, base_folder.encryption_key, iv),
-            'password': self._encrypt_and_encode_payload(password, base_folder.encryption_key, iv),
+            'name': encrypt_and_encode(name),
+            'password': encrypt_and_encode(password),
             'pwprotect': 'on' if pwprotect else '',
             'requesthash': urllib.parse.quote(self.encrypted_username, safe=''),
             'sentms': f"{time.time_ns() // 1_000_000}",
             'sharedfolderid': '' if base_folder.is_personal else base_folder.id,
             'token': urllib.parse.quote(self.csrf_token, safe=''),
-            'totp': self._encrypt_and_encode_payload(totp, base_folder.encryption_key, iv),
-            'url': url.encode().hex() if url else '', 
-            'username': self._encrypt_and_encode_payload(username, base_folder.encryption_key, iv),
+            'totp': encrypt_and_encode(totp),
+            'url': url.encode().hex() if url else '',
+            'username': encrypt_and_encode(username),
         }
-        payload = dict(Configurations.secret_payload, **payload)
-        headers = {'content-type': 'application/x-www-form-urlencoded'}
-        payload_string = "&".join([f'{key}={value}' for key, value in payload.items()])
-        url = f'{self.host}/show.php'
-        response = self.session.post(url, headers=headers, data=payload_string)
-        if not response.ok:
-            self._logger.error(response.json())
-        return response.ok
+        remote_payload = dict(Configurations.secret_payload, **remote_payload)
+        parsed_response = self._create_secret(type_, name, remote_payload)
+        result = parsed_response.find('result')
+        secret_id_ = result.attrib.get('aid')
+        local_payload = {
+            "type": type_,
+            "encryption_key": base_folder.encryption_key,
+            "is_favorite": favorite,
+            "group": grouping,
+            "group_id": base_folder.id,
+            "id": secret_id_,
+            "name": name,
+            "mfa_seed": totp,
+            "notes": notes,
+            "url": url,
+            "username": username,
+            "password": password,
+            "created_gmt": int(time.time()),
+            "shared_folder_id": None if base_folder.is_personal else base_folder.id
+        }
+        return self.decrypted_vault.create_secret(local_payload)
 
-    def create_secure_note(self, 
-                          name:str,
-                          folder_path:str = None,
-                          notes:str = None,
-                          favorite:bool = False) -> bool:
-        """Creates a secure note. 
-        Depending on the folder, a different encryption key is used. 
+    def create_secure_note(self,
+                           name: str,
+                           folder_path: str = None,
+                           notes: str = None,
+                           favorite: bool = False) -> bool:
+        """Creates a secure note.
 
         Args:
-            name (str): _description_
-            folder_path (str, optional): _description_. Defaults to None.
-            notes (str, optional): _description_. Defaults to None.
-            favorite (bool, optional): _description_. Defaults to False.
+            name (str): name.
+            folder_path (str, optional): folder path. Defaults to None.
+            notes (str, optional): notes. Defaults to None.
+            favorite (bool, optional): favorite. Defaults to False.
 
         Returns:
             bool: True at success, False at failure.
+
         """
+        type_ = 'secure note'
         base_folder = self._get_base_folder_by_path(folder_path)
         grouping = self._get_grouping_by_folder_path(folder_path, base_folder.is_personal)
-        iv = EncryptManager.create_random_iv()
-        payload = {
+        encrypt_and_encode = partial(Payload._encrypt_and_encode_payload, base_folder.encryption_key)
+        remote_payload = {
             'encuser': urllib.parse.quote(self.encrypted_username, safe=''),
-            'extra': self._encrypt_and_encode_payload(notes, base_folder.encryption_key, iv),
+            'extra': encrypt_and_encode(notes),
             'fav': 'on' if favorite else '',
-            'grouping': '' if not grouping else self._encrypt_and_encode_payload(grouping, base_folder.encryption_key, iv),
+            'grouping': '' if not grouping else encrypt_and_encode(grouping),
             'hexName': name.encode('utf-8').hex(),
             'n': name.encode('utf-8').hex(),
-            'name': self._encrypt_and_encode_payload(name, base_folder.encryption_key, iv),
+            'name': encrypt_and_encode(name),
             'requesthash': urllib.parse.quote(self.encrypted_username, safe=''),
             'sentms': f"{time.time_ns() // 1_000_000}",
             'sharedfolderid': '' if base_folder.is_personal else base_folder.id,
             'token': urllib.parse.quote(self.csrf_token, safe=''),
         }
-        payload = dict(Configurations.secure_note_payload, **payload)
-        headers = {'content-type': 'application/x-www-form-urlencoded'}
-        payload_string = "&".join([f'{key}={value}' for key, value in payload.items()])
-        url = f'{self.host}/show.php'
-        response = self.session.post(url, headers=headers, data=payload_string)
-        if not response.ok:
-            self._logger.error(response.json())
-        return response.ok
+        remote_payload = dict(Configurations.secure_note_payload, **remote_payload)
+        parsed_response = self._create_secret(type_, name, remote_payload)
+        result = parsed_response.find('result')
+        secret_id_ = result.attrib.get('aid')
+        local_payload = {
+            "type": type_,
+            "encryption_key": base_folder.encryption_key,
+            "is_favorite": favorite,
+            "group": grouping,
+            "group_id": base_folder.id,
+            "id": secret_id_,
+            "name": name,
+            "notes": notes,
+            "created_gmt": int(time.time()),
+            "shared_folder_id": None if base_folder.is_personal else base_folder
+        }
+        return self.decrypted_vault.create_secret(local_payload)
 
-    def _encrypt_and_encode_payload(self, payload:str, encryption_key:str, iv=None) -> str:
-        """aes256_cbc encrypting and encoding a payload 
+    def move_secret_to_folder(self, secret_full_path: str, folder_path: str) -> bool:
+        """Moving a secret from a folder to another folder.
 
         Args:
-            payload (str): _description_
-            encryption_key (str): _description_
-            iv (_type_, optional): _description_. Defaults to None.
+            secret_full_path (str): the path where the current secret is stored.
+            folder_path (str): location to the folder where the secret should move to.
 
         Returns:
-            str: _description_
+            bool: True at success, False at failure.
+
         """
-        if not all([payload and encryption_key]):
-            return ''
-        if not iv:
-            iv = EncryptManager.create_random_iv()
-        encrypted_attribute = EncryptManager.encrypt_aes256_cbc(iv, payload.encode(), encryption_key)
-        url_encoded_data = urllib.parse.quote(f'{b64encode(iv).decode("utf-8")}|{b64encode(encrypted_attribute).decode("utf-8")}', safe='')
-        return f'!{url_encoded_data}'
-
-    def move_secret_to_folder(self, secret_name:str, folder_path:str):
-        # ? - What to do if more secrets are found? Do we accept that you can't move a secret if more than 1 is found?
-        # ? - Would we want a .move method on the secret class?
-
-        secret = self.get_secret_by_name(secret_name)
-        source_folder_name = secret.group if secret.group_id else secret.shared_folder.shared_name
-        base_folder_source = self._get_base_folder_by_path(source_folder_name)
-        base_folder_destination = self._get_base_folder_by_path(folder_path)
-        if not base_folder_destination:
+        # TODO: what if someone passes a secret_full_path with single quotes?
+        source_folder_path, _, secret_name = secret_full_path.rpartition('\\')
+        folder = self.get_folder_by_path(source_folder_path)
+        if not folder:
+            self._logger.warning(f'No folder found for path "{source_folder_path}"')
             return False
-        
-        grouping = self._get_grouping_by_folder_path(folder_path, base_folder_destination.is_personal)
-        self._logger.info(f'Moving secret "{secret.name}" from "{source_folder_name}" to "{folder_path}"')
-
-        iv = EncryptManager.create_random_iv()
-        payload = {
-            'encuser': urllib.parse.quote(self.encrypted_username, safe=''),
-            'extra0': '' if not secret.notes else self._encrypt_and_encode_payload(secret.notes, base_folder_destination.encryption_key, iv),
-            'grouping0': '' if not grouping else self._encrypt_and_encode_payload(grouping, base_folder_destination.encryption_key, iv),
-            'name0': '' if not secret.name else self._encrypt_and_encode_payload(secret.name, base_folder_destination.encryption_key, iv),
-            'origaid0': '' if not getattr(secret, "id") else getattr(secret, "id"),
-            'origsharedfolderid': '' if base_folder_source.is_personal else base_folder_source.id,
-            'password0': '' if not secret.password else self._encrypt_and_encode_payload(secret.password, base_folder_destination.encryption_key, iv),
-            'reportname': '' if not secret.name else secret.name,
-            'requesthash': urllib.parse.quote(self.encrypted_username, safe=''),
-            'sentms': f"{time.time_ns() // 1_000_000}",
-            'sharedfolderid': '' if base_folder_destination.is_personal else base_folder_destination.id,
-            'todelete': '' if not secret.id else urllib.parse.quote(secret.id, safe=''),
-            'token': urllib.parse.quote(self.csrf_token, safe=''),
-            'totp0': '' if not secret.mfa_seed else self._encrypt_and_encode_payload(secret.mfa_seed, base_folder_destination.encryption_key, iv),
-            'url0': '' if not secret.url else secret.url.encode().hex(),
-            'username': urllib.parse.quote(self.username, safe=''),
-            'username0': self._encrypt_and_encode_payload(self.username, base_folder_destination.encryption_key, iv),
-        }
-        payload = dict(Configurations.move_secrets_payload, **payload)
-        headers = {'content-type': 'application/x-www-form-urlencoded'}
-        payload_string = "&".join([f'{key}={value}' for key, value in payload.items()])
-        url = f'{self.host}/lastpass/api.php'
-        response = self.session.post(url, headers=headers, data=payload_string)
-        if not response.ok:
-            self._logger.error(response.json())
-        return response.ok
+        secret = folder.get_secret(secret_name)
+        if not secret:
+            self._logger.warning(f'No secret found for name "{secret_name}" under path "{source_folder_path}"')
+            return False
+        return secret.move_to_folder(folder_path)
