@@ -81,7 +81,6 @@ class Event:
         return f'{values}\n\n'
 
 
-
 @dataclass
 class Chunk:
     """Models data of an encrypted chunk of the vault blob."""
