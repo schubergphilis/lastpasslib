@@ -33,15 +33,16 @@ Main code for secrets.
 
 import base64
 from dataclasses import dataclass
+from functools import partial
 import logging
 import time
 from copy import copy
 from datetime import datetime
 from pathlib import Path
+from base64 import b64encode
 from dateutil.parser import parse
 
-from .configuration import LASTPASS_VERSION
-from .datamodels import History, ShareAction
+from .configuration import LASTPASS_VERSION, Configurations
 from .encryption import EncryptManager
 import urllib
 
@@ -934,3 +935,26 @@ class Attachment:
         """
         with open(Path(path, self.filename), 'w', encoding='utf8') as ofile:
             ofile.write(self.content)
+
+
+class Payload():
+
+    @staticmethod
+    def _encrypt_and_encode_payload(encryption_key: str, payload: str) -> str:
+        """aes256_cbc encrypting and encoding a payload.
+
+        Args:
+            encryption_key (str): _description_
+            payload (str): _description_
+
+        Returns:
+            str: _description_
+
+        """
+        if not all([payload and encryption_key]):
+            return ''
+        iv = EncryptManager.create_random_iv()
+        encrypted_attribute = EncryptManager.encrypt_aes256_cbc(iv, payload.encode(), encryption_key)
+        url_encoded_data = urllib.parse.quote(f'{b64encode(iv).decode("utf-8")}'
+                                              f'|{b64encode(encrypted_attribute).decode("utf-8")}', safe='')
+        return f'!{url_encoded_data}'
