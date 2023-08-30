@@ -116,6 +116,7 @@ class ShareAction:
         """Boolean of the given status of the share."""
         return bool(int(self.give))
 
+
 class Secret:
     """Models the secret and exposes the main attributes that are shared across Passwords and Secure Notes."""
 
