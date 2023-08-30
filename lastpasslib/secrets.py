@@ -249,24 +249,24 @@ class Secret:
 
     def delete(self):
         """Deletes the secret from Lastpass."""
-        url = f'{self._lastpass.host}/show.php'
+        url = self._lastpass.api_endpoint_show
         data = {
             'aid': self.id,
             'delete': '1',
             'encuser': self._lastpass.encrypted_username,
             'requesthash': self._lastpass.encrypted_username,
             'sentms': f"{time.time_ns() // 1_000_000}",
-            'token': self._lastpass.token
+            'token': self._lastpass.token,
+            'sharedfolderid': self._shared_folder.id if self._shared_folder else ''
         }
         response = self._lastpass.session.post(url, data=data, timeout=5)
         if not response.ok:
             self._logger.error(f'Response status: {response.status_code} with content: {response.content}.')
             return False
-        self._lastpass.decrypted_vault.secrets = [
-            secret
-            for secret in self._lastpass.decrypted_vault.secrets
-            if secret.id != self.id
-        ]
+        self._lastpass.decrypted_vault.delete_secret_by_id(self.id)
+        folder_id = self.shared_folder.id if self.shared_folder else self.group_id
+        self._logger.info(f'Deleted {self.type.lower()} name: "{self.name}"'
+                          f'group: "{self.group}" folder id: "{folder_id}".')
         return True
 
     @property
