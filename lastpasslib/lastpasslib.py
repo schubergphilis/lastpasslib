@@ -252,7 +252,7 @@ class Lastpass:
             response = self.session.post(url, data=data)
             if not response.ok:
                 response.raise_for_status()
-            self._shared_folders_data_ = [data for data in response.json().get('folders')]
+            self._shared_folders_data_ = list(response.json().get('folders'))
             # response.json().get('superusers') exposes a {uid: , key:} dictionary of superusers.
         return self._shared_folders_data_
 
@@ -411,13 +411,14 @@ class Lastpass:
         return folders.pop()
 
     def get_folder_by_path(self, path: str) -> Folder:
-        """Gets a folder by path.
+        r"""Gets a folder by path.
 
         Args:
             path (str): A string with '\\' as seperator.
 
         Returns:
             Folder: The first folder it matched on based on path. None if no match found.
+
         """
         return next((folder for folder in self.folders if folder.path == tuple(path.split('\\'))), None)
 
