@@ -162,10 +162,18 @@ class Secret:
         """Group name of the secret."""
         return self._data.get('group')
 
+    @group.setter
+    def group(self, value):
+        self._data['group'] = value
+
     @property
     def group_id(self):
         """Group id of the secret."""
         return self._data.get('group_id')
+
+    @group_id.setter
+    def group_id(self, value):
+        self._data['group_id'] = value
 
     @property
     def has_attachment(self):
@@ -181,6 +189,10 @@ class Secret:
     def id(self):
         """ID."""
         return self._data.get('id')
+
+    @id.setter
+    def id(self, value):
+        self._data['id'] = value
 
     @property
     def is_individual_share(self):
@@ -216,6 +228,10 @@ class Secret:
     def shared_folder(self):
         """A shared folder object of the parent share folder if any else None."""
         return self._shared_folder
+
+    @shared_folder.setter
+    def shared_folder(self, value):
+        self._data['shared_folder'] = value
 
     @property
     def is_password_protected(self):
@@ -268,6 +284,121 @@ class Secret:
         self._logger.info(f'Deleted {self.type.lower()} name: "{self.name}"'
                           f'group: "{self.group}" folder id: "{folder_id}".')
         return True
+
+    def move_to_folder(self, folder_path: str):
+        """Move the secret to another folder.
+
+        Args:
+            folder_path (str): folder path.
+
+        Returns:
+            bool: True at success, False at failure.
+
+        """
+        destination_base_folder = self._lastpass._get_base_folder_by_path(folder_path)
+        if not destination_base_folder:
+            self._logger(f'No folder found for "{folder_path}".')
+            return False
+        # a lot of if statements in order to verify if the secret is being moved to the same destination
+        # and to give correct logging about where the secret is moved from and to.
+
+        # the problem is that:
+        # grouping contains the full path when the folder is personal
+        # if no grouping exists the folder is needed
+        # if its not personal, then folder and grouping are needed, if grouping exists.
+
+        if (self.group_id or self.shared_folder is not None):
+            source_folder = self._lastpass._get_folder_by_id(self.group_id) if self.group_id \
+                            else self._lastpass.get_folder_by_name(self.shared_folder.shared_name)
+        else:
+            source_folder = self._lastpass.get_folder_by_name('\\')
+
+        grouping = self._lastpass._get_grouping_by_folder_path(folder_path, destination_base_folder.is_personal)
+        if destination_base_folder.is_personal:
+            destination_full_path = grouping if grouping else destination_base_folder.full_path
+        else:
+            destination_full_path = f"{destination_base_folder.full_path}\{grouping}" if grouping \
+                                    else destination_base_folder.full_path
+
+        if source_folder.is_personal:
+            source_full_path = self.group if self.group else source_folder.full_path
+        else:
+            source_full_path = f"{source_folder.full_path}\{self.group}" if self.group else source_folder.full_path
+
+        if ((source_folder.id == destination_base_folder.id) and (self.group == grouping)):
+            self._logger.info(f'Secret "{self.name}" is already in the desired folder "{destination_full_path}"')
+            return False
+
+        self._logger.info(f'Moving secret "{self.name}" from "{source_full_path}" to "{destination_full_path}"')
+        encrypt_and_encode = partial(Payload._encrypt_and_encode_payload, destination_base_folder.encryption_key)
+        payload = {
+            'encuser': urllib.parse.quote(self._lastpass.encrypted_username, safe=''),
+            'extra0': encrypt_and_encode(self.notes),
+            'grouping0': encrypt_and_encode(grouping),
+            'name0': encrypt_and_encode(self.name),
+            'origaid0': self.id if self.id else '',
+            'password0': encrypt_and_encode(self.password),
+            'reportname': self.name if self.name else '',
+            'requesthash': urllib.parse.quote(self._lastpass.encrypted_username, safe=''),
+            'sentms': f"{time.time_ns() // 1_000_000}",
+            'sharedfolderid': '' if destination_base_folder.is_personal else destination_base_folder.id,
+            'todelete': urllib.parse.quote(self.id, safe='') if self.id else '',
+            'token': urllib.parse.quote(self._lastpass.csrf_token, safe=''),
+            'totp0': encrypt_and_encode(self.mfa_seed),
+            'url0': self.url.encode().hex() if self.url else '',
+            'username': urllib.parse.quote(self._lastpass.username, safe=''),
+            'username0': encrypt_and_encode(self._lastpass.username),
+        }
+        payload = dict(Configurations.move_secrets_payload, **payload)
+        if (source_folder and not source_folder.is_personal):
+            payload['origsharedfolderid'] = source_folder.id
+        headers = {'content-type': 'application/x-www-form-urlencoded'}
+        payload_string = "&".join([f'{key}={value}' for key, value in payload.items()])
+        url = f'{self._lastpass.host}/lastpass/api.php'
+        response = self._lastpass.session.post(url, headers=headers, data=payload_string)
+        parsed_response = self._lastpass._validate_authentication_response(response)
+        if getattr(parsed_response, 'attrib').get('rc') != "OK":
+            self.error(f'Failed to move secret "{self.name}" from "{source_folder.name}"'
+                       f'to "{folder_path}. Error: {parsed_response}"')
+            # raise custom error?
+        secret_id_ = parsed_response.find('result').attrib.get('aid')
+        if not secret_id_:
+            self._loggers.error(f'No ID found in the response after creating the secret "{self.name}"')
+            return False
+        self.id = secret_id_
+        if destination_base_folder.is_personal:
+            self._shared_folder = None
+            self.group = grouping
+            self.group_id = destination_base_folder.id
+        else:
+            self.group_id = None
+            self.group = grouping
+            shared_folder = self._lastpass._decrypted_vault._get_shared_folder_by_id(destination_base_folder.id)
+            self._shared_folder = shared_folder
+        return response.ok
+
+        # # remove locally
+        # self._lastpass.decrypted_vault.delete_secret_by_id(self.id)
+        # # re-create locally
+        # secret_id_ = parsed_response.find('result').attrib.get('aid')
+        # if not secret_id_:
+        #     self._loggers.error(f'No ID found in the response after creating the secret "{self.name}"')
+        #     return False
+        # local_payload = {
+        #     "type": self.type,
+        #     "encryption_key": destination_base_folder.encryption_key,
+        #     "is_favorite": self.is_favorite,
+        #     "group": grouping,
+        #     "group_id": destination_base_folder.id,
+        #     "id": secret_id_,
+        #     "name": self.name,
+        #     "notes": self.notes,
+        #     "created_gmt": int(time.time()),
+        #     "shared_folder_id": None if destination_base_folder.is_personal else destination_base_folder.id
+        # }
+        # self._lastpass.decrypted_vault.create_secret(local_payload)
+
+        # return response.ok
 
     @property
     def shared_to_people(self):
