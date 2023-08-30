@@ -88,3 +88,7 @@ class UnknownIP(Exception):
 
 class MobileDevicesRestricted(Exception):
     """Mobile devices are restricted on the Account settings of lastpass."""
+
+
+class MissingResult(Exception):
+    """Server response does not contain a result."""
