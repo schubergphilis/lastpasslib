@@ -60,6 +60,7 @@ from .lastpasslibexceptions import (ApiLimitReached,
                                     UnknownAccountID,
                                     UnknownFolder,
                                     UnknownIP,
+                                    UnknownSecret,
                                     UnknownUsername,
                                     MobileDevicesRestricted)
 from .configuration import Configurations
@@ -89,8 +90,8 @@ class Lastpass:
         self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
         self.domain = domain
         self.host = f'https://{domain}'
-        self.api_endpoint_show = f"{self.host}/show.php"
-        self.api_endpoint_api = f'{self.host}/lastpass/api.php'
+        self.show_endpoint = f"{self.host}/show.php"
+        self.api_endpoint = f'{self.host}/lastpass/api.php'
         self.username = username
         self._iteration_count = None
         self._vault = Vault(self, password)
@@ -514,6 +515,19 @@ class Lastpass:
         if len(secrets) > 1:
             raise MultipleInstances(f'More than one secrets with name "{name}" exist.')
         return secrets.pop()
+    
+    def get_secret_by_full_path(self, path, name):
+        """Gets a secret from the vault by name.
+
+        Args:
+            path: The full path to the secret.
+            name: The name to match on, case-sensitive.
+
+        Returns:
+            The secret if a match is found, else None.
+
+        """
+        return next((secret for secret in self.get_secrets() if secret.full_path == path and secret.name == name), None)
 
     def get_secret_by_id(self, id_):
         """Gets a secret from the vault by id.
@@ -999,7 +1013,8 @@ class Lastpass:
         """
         if not folder_path:
             return ''
-        folder_path = folder_path.encode('unicode_escape').decode('utf-8')
+        folder_path = folder_path if '\\\\' in repr(folder_path) \
+            else folder_path.encode('unicode_escape').decode('utf-8')
         if folder_is_personal:
             return folder_path
         return re.split(r'[\\]+', folder_path, 1)[1]
@@ -1038,7 +1053,7 @@ class Lastpass:
         """
         payload_string = "&".join([f'{key}={value}' for key, value in remote_payload.items()])
         headers = {'content-type': 'application/x-www-form-urlencoded'}
-        url = self.api_endpoint_show
+        url = self.show_endpoint
         response = self.session.post(url, headers=headers, data=payload_string)
         result = self._validate_action_response(response)
         self._logger.info(f'{type_.__name__} "{name}" created.')
@@ -1188,17 +1203,9 @@ class Lastpass:
             bool: True at success, False at failure.
 
         """
-        # TODO: what if someone passes a secret_full_path with single quotes?
         source_folder_path, _, secret_name = secret_full_path.rpartition('\\')
-        if source_folder_path == folder_path:
-            self._logger.info(f'The secret "{secret_name}" is already in the desired folder "{folder_path}".')
-            return False
-        folder = self.get_folder_by_path(source_folder_path)
-        if not folder:
-            self._logger.warning(f'No folder found for path "{source_folder_path}"')
-            return False
-        secret = folder.get_secret(secret_name)
+        secret = self.get_secret_by_full_path(source_folder_path, secret_name)
         if not secret:
-            self._logger.warning(f'No secret found for name "{secret_name}" under path "{source_folder_path}"')
-            return False
+            self._logger.error(f'Could not find secret "{secret_full_path}')
+            raise UnknownSecret
         return secret.move_to_folder(folder_path)

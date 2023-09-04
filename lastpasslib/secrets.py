@@ -275,7 +275,7 @@ class Secret:
 
     def delete(self):
         """Deletes the secret from Lastpass."""
-        url = self._lastpass.api_endpoint_show
+        url = self._lastpass.show_endpoint
         data = {
             'aid': self.id,
             'delete': '1',
@@ -340,7 +340,7 @@ class Secret:
             payload['origsharedfolderid'] = self.shared_folder.id
         headers = {'content-type': 'application/x-www-form-urlencoded'}
         payload_string = "&".join([f'{key}={value}' for key, value in payload.items()])
-        url = self._lastpass.api_endpoint_api
+        url = self._lastpass.api_endpoint
         response = self._lastpass.session.post(url, headers=headers, data=payload_string)
         parsed_response = self._lastpass._validate_authentication_response(response)  # pylint: disable=protected-access
         if getattr(parsed_response, 'attrib', {}).get('rc') != 'OK':

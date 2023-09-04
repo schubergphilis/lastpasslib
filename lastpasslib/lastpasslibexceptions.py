@@ -104,3 +104,7 @@ class UnknownAccountID(Exception):
 
 class RemoteCommandInvalidResult(Exception):
     """The result of the Remote Command is not valid."""
+
+
+class UnknownSecret(Exception):
+    """No secret is found."""
