@@ -97,3 +97,9 @@ History
 ------------------
 
 * Implement support for yubikey MFA
+
+
+1.0.0 (04-09-2023)
+------------------
+
+* Implementing creating and moving of secrets.
