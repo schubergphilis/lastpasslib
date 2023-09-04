@@ -40,7 +40,7 @@ __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
 __date__ = '''08-02-2023'''
 __copyright__ = '''Copyright 2023, Costas Tyfoxylos'''
-__credits__ = ["Costas Tyfoxylos"]
+__credits__ = ["Costas Tyfoxylos", "Yorick Hoorneman"]
 __license__ = '''MIT'''
 __maintainer__ = '''Costas Tyfoxylos'''
 __email__ = '''<ctyfoxylos@schubergphilis.com>'''
@@ -77,25 +77,6 @@ class Event:
 
     def __str__(self):
         attributes = ['name', 'name_alternative', 'group', 'date', 'ip', 'reverse', 'action']
-        values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
-        return f'{values}\n\n'
-
-
-@dataclass
-class History:
-    """Models data of a history event on the server."""
-
-    date: str
-    value: str
-    person: str
-
-    @property
-    def datetime(self):
-        """Datetime object of the date."""
-        return parse(self.date)
-
-    def __str__(self):
-        attributes = ['date', 'person', 'value']
         values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
         return f'{values}\n\n'
 
@@ -147,44 +128,6 @@ class CompanyUser:
 
 
 @dataclass
-class ShareAction:
-    """Models data of a share action of a secret."""
-
-    company_username: str
-    date: str
-    email: str
-    give: str
-    share_date: str
-    state: str
-    _uid: str
-
-    @property
-    def id(self):
-        """ID of the share action, correlates with the ID of the user part of the share."""
-        return self._uid
-
-    @property
-    def share_datetime(self):
-        """Datetime object of the share date."""
-        return parse(self.share_date)
-
-    @property
-    def datetime(self):
-        """Datetime object of the date."""
-        return parse(self.date)
-
-    @property
-    def accepted(self):
-        """Boolean of the accepted status of the share."""
-        return bool(int(self.state))
-
-    @property
-    def given(self):
-        """Boolean of the given status of the share."""
-        return bool(int(self.give))
-
-
-@dataclass
 class Folder:
     name: str
     path: tuple
@@ -214,6 +157,9 @@ class Folder:
 
     def add_folders(self, folders):
         self.folders.extend(folders)
+
+    def get_secret(self, secret_name):
+        return next((secret for secret in self.secrets if secret_name == secret.name), None)
 
 
 @dataclass(frozen=True, order=True)
@@ -255,14 +201,3 @@ class SharedFolder:
         attributes = ['id', 'name', 'read_only', 'deleted', 'created', 'last_modified', 'sharer']
         values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
         return f'{values}\n\n'
-
-
-@dataclass
-class DecryptedVault:
-    encrypted_username: str
-    attachments: list
-    never_urls: list
-    equivalent_domains: list
-    url_rules: list
-    secrets: list
-    folder_entries: list

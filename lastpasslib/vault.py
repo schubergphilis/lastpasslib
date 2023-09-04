@@ -31,6 +31,8 @@ Main code for vault.
 
 """
 
+from collections import defaultdict
+from dataclasses import dataclass
 import json
 import logging
 import re
@@ -41,7 +43,7 @@ from pathlib import Path
 from Crypto.Cipher import PKCS1_OAEP
 from binascii import hexlify
 
-from .datamodels import NeverUrl, EquivalentDomain, UrlRule, DecryptedVault
+from .datamodels import Folder, FolderMetadata, NeverUrl, EquivalentDomain, SharedFolder, UrlRule
 from .dataschemas import SecretSchema, SharedFolderSchema, AttachmentSchema
 from .encryption import Blob, EncryptManager, Stream
 from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom, FolderEntry
@@ -54,7 +56,7 @@ __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
 __date__ = '''08-02-2023'''
 __copyright__ = '''Copyright 2023, Costas Tyfoxylos'''
-__credits__ = ["Costas Tyfoxylos"]
+__credits__ = ["Costas Tyfoxylos", "Yorick Hoorneman"]
 __license__ = '''MIT'''
 __maintainer__ = '''Costas Tyfoxylos'''
 __email__ = '''<ctyfoxylos@schubergphilis.com>'''
@@ -129,13 +131,18 @@ class Vault:
         never_urls = self._get_never_urls(blob)
         equivalent_domains = self._get_eqdns(blob)
         url_rules = self._get_url_rules(blob)
-        secrets, attachments, folder_entries = self._get_secrets_folders_and_attachments(blob, attachments_data)
-        return DecryptedVault(encrypted_username,
+        secrets, attachments, \
+            folder_entries, shared_folders = self._get_secrets_folders_and_attachments(blob, attachments_data)
+        encryption_key = self.key
+        return DecryptedVault(self._lastpass,
+                              encrypted_username,
                               attachments,
                               never_urls,
                               equivalent_domains,
                               url_rules, secrets,
-                              folder_entries)
+                              encryption_key,
+                              folder_entries,
+                              shared_folders)
 
     @staticmethod
     def _get_attribute_payload_data(stream, attributes):
@@ -205,6 +212,7 @@ class Vault:
         secrets = []
         attachments = []
         folder_entries = []
+        shared_folders = []
         key = self.key
         rsa_private_key = None
         shared_folder = None
@@ -219,7 +227,7 @@ class Vault:
                                                                               secrets,
                                                                               folder_entries)
                 # We want to skip any possible error so the process completes and we gather the errors so they can be
-                # troubleshot
+                # troubleshoot
                 except Exception:  # noqa
                     self._logger.exception('Unable to decrypt chunk, adding to the error list.')
                     self.unable_to_decrypt.append((chunk, key))
@@ -230,11 +238,13 @@ class Vault:
                 # After SHAR chunk all the following accounts are encrypted with a new key.
                 # SHAR chunks hold shared folders so shared folders are passed into all accounts under them.
                 data = self._parse_shared_folder(chunk.payload, self.key, rsa_private_key)
-                shared_folder = self._lastpass._get_shared_folder_by_id(data.get('id'))  # pylint: disable=protected-access
-                if shared_folder:
-                    shared_folder.shared_name = data.get('name')
+                shared_folder_data = self._lastpass._get_shared_folder_data_by_id(data.get('id'))  # pylint: disable=protected-access
+                if shared_folder_data:
+                    shared_folder_data['shared_name'] = data.get('name')
+                    shared_folder = SharedFolder(*shared_folder_data.values())
+                    shared_folders.append(shared_folder)
                 key = data.get('key')
-        return secrets, attachments, folder_entries
+        return secrets, attachments, folder_entries, shared_folders
 
     @staticmethod
     def _parse_url_rules(payload):
@@ -407,3 +417,152 @@ class Vault:
         name = f'{f"{int(time.time() * 10)}-" if timestamp else ""}{name}'
         with open(Path(path, name), 'wb', encoding='utf8') as ofile:
             ofile.write(self.blob)
+
+
+@dataclass
+class DecryptedVault:
+
+    def __init__(self,  # pylint: disable=too-many-arguments
+                 lastpass_instance,
+                 encrypted_username,
+                 attachments,
+                 never_urls,
+                 equivalent_domains,
+                 url_rules,
+                 secrets,
+                 encryption_key,
+                 folder_entries,
+                 shared_folders):
+        self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
+        self._lastpass = lastpass_instance
+        self.encrypted_username = encrypted_username
+        self.attachments = attachments
+        self.never_urls = never_urls
+        self.equivalent_domains = equivalent_domains
+        self.url_rules = url_rules
+        self.secrets = secrets
+        self.encryption_key = encryption_key
+        self.folder_entries = folder_entries
+        self._folders = None
+        self._shared_folders = shared_folders
+
+    def _get_shared_folder_by_id(self, folder_id):
+        return next((folder for folder in self._shared_folders if folder.id == folder_id), None)
+
+    def delete_secret_by_id(self, id_):
+        self.secrets = [secret for secret in self.secrets if secret.id != id_]
+        self.clear_folders()
+
+    def create_secret(self, secret_type, data):
+        shared_folder = self._get_shared_folder_by_id(data.get('shared_folder_id'))
+        secret = secret_type(self._lastpass, data, shared_folder)
+        self.secrets.append(secret)
+        self.clear_folders()
+        return True
+
+    def clear_folders(self):
+        self._folders = None
+
+    @property
+    def folders(self):
+        """All the folders of the vault.
+
+        Returns:
+            A list of all the folders of the vault.
+
+        """
+        if self._folders is None:
+            root_folder_data, folders_data = self._parse_folder_groups(self.secrets)
+            root_folder = Folder('\\',
+                                 ('\\',),
+                                 id=None,
+                                 encryption_key=self.encryption_key,
+                                 is_personal=True)
+            root_folder.secrets.extend(root_folder_data.get('\\'))
+            all_folders = [root_folder]
+            all_folders.extend(self._get_folder_objects(folders_data, root_folder))
+            self._folders = all_folders
+        return self._folders
+
+    @staticmethod
+    def _parse_folder_groups(secrets):
+        """Parses all folder structures by iterating over all secrets.
+
+        There are three levels of folders. One is the root one that could hold parentless secrets, the second is the
+        personal folders that only exist for the user and the third is the shared folders that are shared.
+
+        Args:
+            secrets: All the secrets to iterate over and deduct their directory structure.
+
+        Returns:
+            tuple: Data for the root folder, the personal folders and the shared folders.
+
+        """
+        root_folder_data = {'\\': []}
+        folders_data = defaultdict(list)
+        for secret in secrets:
+            if not any([secret.group_id, secret.shared_folder]):
+                root_folder_data['\\'].append(secret)
+                continue
+            if secret.group_id:
+                split_path = tuple(secret.group.split('\\'))
+                is_personal = True
+                group_id = secret.group_id
+            if secret.shared_folder:
+                split_path = (tuple([secret.shared_folder.shared_name] + secret.group.split('\\'))
+                              if secret.group else tuple([secret.shared_folder.shared_name]))
+                is_personal = False
+                group_id = secret.shared_folder.id
+            folder_metadata = FolderMetadata(split_path,
+                                             group_id,
+                                             secret.encryption_key,
+                                             is_personal=is_personal)
+            folders_data[folder_metadata].append(secret)
+        return root_folder_data, folders_data
+
+    @staticmethod
+    def _get_parent_folder(folder, folders):
+        """Tries to identify the parent folder of a provided folder and return that from a list of folders.
+
+        Args:
+            folder: The folder to look the parent for.
+            folders: A list of all the folders.
+
+        Returns:
+            The parent folder of the mentioned folder if a match is found, else None.
+
+        """
+        return next((parent_folder for parent_folder in folders
+                     if tuple(folder.path[:-1]) == parent_folder.path), None)  # noqa
+
+    @staticmethod
+    def _get_folder_objects(secrets_by_path, root_folder=None):
+        folder_objects = []
+        for folder_metadata, secrets in sorted(secrets_by_path.items()):
+            folder = Folder(folder_metadata.path[-1],
+                            folder_metadata.path,
+                            folder_metadata.id,
+                            folder_metadata.encryption_key,
+                            is_personal=folder_metadata.is_personal)
+            folder.add_secrets(secrets)
+            if len(folder.path) > 1:
+                folder_parent = DecryptedVault._get_parent_folder(folder, folder_objects)
+                if not folder_parent:
+                    folder_parent = Folder(folder.path[-2],
+                                           tuple(folder.path[:-1]),
+                                           id=None,
+                                           encryption_key=folder.encryption_key,
+                                           is_personal=folder_metadata.is_personal)
+                    folder_grandparent = DecryptedVault._get_parent_folder(folder_parent, folder_objects)
+                    if folder_grandparent:
+                        folder_grandparent.add_folder(folder_parent)
+                        folder_parent.parent = folder_grandparent
+                    folder_objects.append(folder_parent)
+                folder.parent = folder_parent
+                folder_parent.add_folder(folder)
+            else:
+                if root_folder:
+                    folder.parent = root_folder
+                    root_folder.add_folder(folder)
+            folder_objects.append(folder)
+        return folder_objects

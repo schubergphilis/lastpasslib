@@ -32,15 +32,20 @@ Main code for secrets.
 """
 
 import base64
+from dataclasses import dataclass
+from functools import partial
 import logging
 import time
 from copy import copy
 from datetime import datetime
 from pathlib import Path
+from dateutil.parser import parse
 
-from .configuration import LASTPASS_VERSION
-from .datamodels import History, ShareAction
+from lastpasslib.lastpasslibexceptions import RemoteCommandInvalidResult, UnknownAccountID
+
+from .configuration import LASTPASS_VERSION, Configurations
 from .encryption import EncryptManager
+import urllib
 
 LOGGER_BASENAME = 'secrets'
 LOGGER = logging.getLogger(LOGGER_BASENAME)
@@ -50,11 +55,68 @@ __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
 __date__ = '''08-02-2023'''
 __copyright__ = '''Copyright 2023, Costas Tyfoxylos'''
-__credits__ = ["Costas Tyfoxylos"]
+__credits__ = ["Costas Tyfoxylos", "Yorick Hoorneman"]
 __license__ = '''MIT'''
 __maintainer__ = '''Costas Tyfoxylos'''
 __email__ = '''<ctyfoxylos@schubergphilis.com>'''
 __status__ = '''Development'''  # "Prototype", "Development", "Production".
+
+
+@dataclass
+class History:
+    """Models data of a history event on the server."""
+
+    date: str
+    value: str
+    person: str
+
+    @property
+    def datetime(self):
+        """Datetime object of the date."""
+        return parse(self.date)
+
+    def __str__(self):
+        attributes = ['date', 'person', 'value']
+        values = "\n".join([f'{attribute}: {getattr(self, attribute)}' for attribute in attributes])
+        return f'{values}\n\n'
+
+
+@dataclass
+class ShareAction:
+    """Models data of a share action of a secret."""
+
+    company_username: str
+    date: str
+    email: str
+    give: str
+    share_date: str
+    state: str
+    _uid: str
+
+    @property
+    def id(self):
+        """ID of the share action, correlates with the ID of the user part of the share."""
+        return self._uid
+
+    @property
+    def share_datetime(self):
+        """Datetime object of the share date."""
+        return parse(self.share_date)
+
+    @property
+    def datetime(self):
+        """Datetime object of the date."""
+        return parse(self.date)
+
+    @property
+    def accepted(self):
+        """Boolean of the accepted status of the share."""
+        return bool(int(self.state))
+
+    @property
+    def given(self):
+        """Boolean of the given status of the share."""
+        return bool(int(self.give))
 
 
 class Secret:
@@ -103,10 +165,25 @@ class Secret:
         """Group name of the secret."""
         return self._data.get('group')
 
+    @group.setter
+    def group(self, value):
+        self._data['group'] = value
+
     @property
     def group_id(self):
         """Group id of the secret."""
         return self._data.get('group_id')
+
+    @group_id.setter
+    def group_id(self, value):
+        self._data['group_id'] = value
+
+    @property
+    def full_path(self):
+        """The full path of where the secret is stored."""
+        if self._shared_folder:
+            return fr'{self._shared_folder.shared_name}\{self.group}' if self.group else self._shared_folder.shared_name
+        return self.group if self.group else ''
 
     @property
     def has_attachment(self):
@@ -122,6 +199,10 @@ class Secret:
     def id(self):
         """ID."""
         return self._data.get('id')
+
+    @id.setter
+    def id(self, value):
+        self._data['id'] = value
 
     @property
     def is_individual_share(self):
@@ -158,6 +239,10 @@ class Secret:
         """A shared folder object of the parent share folder if any else None."""
         return self._shared_folder
 
+    @shared_folder.setter
+    def shared_folder(self, value):
+        self._data['shared_folder'] = value
+
     @property
     def is_password_protected(self):
         """Flag of whether the secret is password protected."""
@@ -190,25 +275,94 @@ class Secret:
 
     def delete(self):
         """Deletes the secret from Lastpass."""
-        url = f'{self._lastpass.host}/show.php'
+        url = self._lastpass.show_endpoint
         data = {
             'aid': self.id,
             'delete': '1',
             'encuser': self._lastpass.encrypted_username,
             'requesthash': self._lastpass.encrypted_username,
             'sentms': f"{time.time_ns() // 1_000_000}",
-            'token': self._lastpass.token
+            'token': self._lastpass.token,
+            'sharedfolderid': self._shared_folder.id if self._shared_folder else ''
         }
         response = self._lastpass.session.post(url, data=data, timeout=5)
         if not response.ok:
             self._logger.error(f'Response status: {response.status_code} with content: {response.content}.')
             return False
-        self._lastpass.decrypted_vault.secrets = [
-            secret
-            for secret in self._lastpass.decrypted_vault.secrets
-            if secret.id != self.id
-        ]
+        self._lastpass.decrypted_vault.delete_secret_by_id(self.id)
+        folder_id = self.shared_folder.id if self.shared_folder else self.group_id
+        self._logger.info(f'Deleted {self.type.lower()} name: "{self.name}" '
+                          f'group: "{self.group}" folder id: "{folder_id}".')
         return True
+
+    def move_to_folder(self, folder_path: str):
+        """Move the secret to another folder.
+
+        Args:
+            folder_path (str): folder path.
+
+        Returns:
+            bool: True at success, False at failure.
+
+        """
+        escaped_path = folder_path if '\\\\' in repr(folder_path) \
+            else folder_path.encode('unicode_escape').decode('utf-8')
+        if self.full_path == escaped_path:
+            self._logger.info(f'Secret "{self.name}" is already in the desired folder "{escaped_path}"')
+            return False
+        destination_base_folder = self._lastpass._get_base_folder_by_path(folder_path)  # pylint: disable=protected-access
+        if not destination_base_folder:
+            self._logger(f'No folder found for "{folder_path}".')
+            return False
+        self._logger.info(f'Moving secret "{self.name}" from "{self.full_path}" to "{escaped_path}"')
+        encrypt_and_encode = partial(EncryptManager.encrypt_and_encode_payload, destination_base_folder.encryption_key)
+        grouping = self._lastpass._get_grouping_by_folder_path(folder_path, destination_base_folder.is_personal)  # pylint: disable=protected-access
+        payload = {
+            'encuser': urllib.parse.quote(self._lastpass.encrypted_username, safe=''),
+            'extra0': encrypt_and_encode(self.notes),
+            'grouping0': encrypt_and_encode(grouping),
+            'name0': encrypt_and_encode(self.name),
+            'origaid0': self.id if self.id else '',
+            'password0': encrypt_and_encode(self.password),
+            'reportname': self.name if self.name else '',
+            'requesthash': urllib.parse.quote(self._lastpass.encrypted_username, safe=''),
+            'sentms': f"{time.time_ns() // 1_000_000}",
+            'sharedfolderid': '' if destination_base_folder.is_personal else destination_base_folder.id,
+            'todelete': urllib.parse.quote(self.id, safe='') if self.id else '',
+            'token': urllib.parse.quote(self._lastpass.csrf_token, safe=''),
+            'totp0': encrypt_and_encode(self.mfa_seed),
+            'url0': self.url.encode().hex() if self.url else '',
+            'username': urllib.parse.quote(self._lastpass.username, safe=''),
+            'username0': encrypt_and_encode(self._lastpass.username),
+        }
+        payload = dict(Configurations.move_secrets_payload, **payload)
+        if self.shared_folder is not None:
+            payload['origsharedfolderid'] = self.shared_folder.id
+        headers = {'content-type': 'application/x-www-form-urlencoded'}
+        payload_string = "&".join([f'{key}={value}' for key, value in payload.items()])
+        url = self._lastpass.api_endpoint
+        response = self._lastpass.session.post(url, headers=headers, data=payload_string)
+        parsed_response = self._lastpass._validate_authentication_response(response)  # pylint: disable=protected-access
+        if getattr(parsed_response, 'attrib', {}).get('rc') != 'OK':
+            self._logger.error(f'Failed to move secret "{self.name}" from "{self.full_path}"'
+                               f'to "{escaped_path}. Error: {parsed_response}"')
+            raise RemoteCommandInvalidResult
+        secret_id_ = parsed_response.find('result').attrib.get('aid')
+        if not secret_id_:
+            self._loggers.error(f'No ID found in the response after creating the secret "{self.name}"')
+            raise UnknownAccountID
+        self.id = secret_id_
+        if destination_base_folder.is_personal:
+            self._shared_folder = None
+            self.group = grouping
+            self.group_id = destination_base_folder.id
+        else:
+            self.group_id = None
+            self.group = grouping
+            shared_folder = self._lastpass._decrypted_vault._get_shared_folder_by_id(destination_base_folder.id)
+            self._shared_folder = shared_folder
+        self._lastpass._decrypted_vault.clear_folders()  # pylint: disable=protected-access
+        return response.ok
 
     @property
     def shared_to_people(self):

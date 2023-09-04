@@ -32,8 +32,10 @@ Main code for lastpasslib.
 """
 
 import datetime
+from functools import partial
 import logging
-from collections import defaultdict
+import re
+import time
 from xml.etree import ElementTree as Etree
 from xml.etree.ElementTree import ParseError
 
@@ -41,27 +43,35 @@ import backoff
 import requests
 from dateutil.parser import parse
 from requests import Session
+import urllib
 
-from .datamodels import CompanyUser, Event, Folder, FolderMetadata, SharedFolder
+from lastpasslib.encryption import EncryptManager
+
+from .datamodels import CompanyUser, Event, Folder
 from .lastpasslibexceptions import (ApiLimitReached,
                                     InvalidMfa,
                                     InvalidPassword,
                                     InvalidSecretType,
                                     MfaRequired,
+                                    MissingResult,
                                     MultipleInstances,
                                     ServerError,
                                     UnexpectedResponse,
+                                    UnknownAccountID,
+                                    UnknownFolder,
                                     UnknownIP,
+                                    UnknownSecret,
                                     UnknownUsername,
                                     MobileDevicesRestricted)
-from .secrets import SECURE_NOTE_TYPES
+from .configuration import Configurations
+from .secrets import SECURE_NOTE_TYPES, Password, SecureNote
 from .vault import Vault
 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
 __date__ = '''08-02-2023'''
 __copyright__ = '''Copyright 2023, Costas Tyfoxylos'''
-__credits__ = ["Costas Tyfoxylos"]
+__credits__ = ["Costas Tyfoxylos", "Yorick Hoorneman"]
 __license__ = '''MIT'''
 __maintainer__ = '''Costas Tyfoxylos'''
 __email__ = '''<ctyfoxylos@schubergphilis.com>'''
@@ -80,13 +90,15 @@ class Lastpass:
         self._logger = logging.getLogger(f'{LOGGER_BASENAME}.{self.__class__.__name__}')
         self.domain = domain
         self.host = f'https://{domain}'
+        self.show_endpoint = f"{self.host}/show.php"
+        self.api_endpoint = f'{self.host}/lastpass/api.php'
         self.username = username
         self._iteration_count = None
         self._vault = Vault(self, password)
         self._authenticated_response_data = None
         self.session = self._get_authenticated_session(username, mfa)
         self._monkey_patch_session()
-        self._shared_folders_ = None
+        self._shared_folders_data_ = None
         self._folders = None
         self._decrypted_vault = None
 
@@ -153,7 +165,7 @@ class Lastpass:
         return self._iteration_count
 
     @staticmethod
-    def _validate_response(response):
+    def _validate_authentication_response(response):
         if not response.ok:
             response.raise_for_status()
         try:
@@ -189,6 +201,21 @@ class Lastpass:
         return parsed_response
 
     @staticmethod
+    def _validate_action_response(response):
+        if not response.ok:
+            response.raise_for_status()
+        try:
+            parsed_response = Etree.fromstring(response.content)
+        except ParseError:
+            raise UnexpectedResponse(response.text) from None
+        result = parsed_response.find('result')
+        if result is None:
+            message = f'Got a server error: {repr(response.text)}'
+            LOGGER.error(message)
+            raise MissingResult(message)
+        return parsed_response
+
+    @staticmethod
     def _extend_payload_for_mfa(mfa, payload):
         payload['otp'] = mfa
         conditions_for_yubikey = [len(mfa) == 44, str(mfa).isalpha(), str(mfa).islower()]
@@ -211,7 +238,7 @@ class Lastpass:
             payload['imei'] = client_id
         headers = {'user-agent': 'lastpasslib'}
         response = requests.post(f'{self.host}/login.php', data=payload, headers=headers, timeout=10)
-        parsed_response = self._validate_response(response)
+        parsed_response = self._validate_authentication_response(response)
         if parsed_response.tag == 'ok':
             data = parsed_response.attrib
             session.cookies.set('PHPSESSID', data.get('sessionid'), domain=self.domain)
@@ -219,9 +246,9 @@ class Lastpass:
         return session
 
     @property
-    def _shared_folders(self):
+    def _shared_folders_data(self):
         """A list of the shared folders of lastpass."""
-        if self._shared_folders_ is None:
+        if self._shared_folders_data_ is None:
             url = f'{self.host}/getSharedFolderInfo.php'
             data = {'lpversion': '4.0',
                     'method': 'web',
@@ -229,11 +256,25 @@ class Lastpass:
             response = self.session.post(url, data=data)
             if not response.ok:
                 response.raise_for_status()
-            self._shared_folders_ = [SharedFolder(*data.values()) for data in response.json().get('folders')]
+            self._shared_folders_data_ = response.json().get('folders')
             # response.json().get('superusers') exposes a {uid: , key:} dictionary of superusers.
-        return self._shared_folders_
+        return self._shared_folders_data_
 
-    def _get_shared_folder_by_id(self, id_):
+    def _get_folder_by_id(self, id_: str):
+        """Gets a folder by id.
+
+        Used to retrieve the personal folder by id.
+
+        Args:
+            id_ (str): The id to match the folder.
+
+        Returns:
+            A folder object if a match is found, else None.
+
+        """
+        return next((folder for folder in self.folders if folder.id == id_), None)
+
+    def _get_shared_folder_data_by_id(self, id_):
         """Gets a shared folder by id.
 
         Used to connect the shared folders with the appropriate secrets in the decryption process of the vault.
@@ -245,7 +286,7 @@ class Lastpass:
             A shared folder object if a match is found, else None
 
         """
-        return next((folder for folder in self._shared_folders if folder.id == id_), None)
+        return next((folder for folder in self._shared_folders_data if folder.get('shareid') == id_), None)
 
     def get_login_history_by_date(self, start_date=None, end_date=None):
         """Get login history events by a range of dates.
@@ -367,86 +408,6 @@ class Lastpass:
         """The session ID."""
         return self._authenticated_response_data.get('sessionid')
 
-    @staticmethod
-    def _parse_folder_groups(secrets):
-        """Parses all folder structures by iterating over all secrets.
-
-        There are three levels of folders. One is the root one that could hold parentless secrets, the second is the
-        personal folders that only exist for the user and the third is the shared folders that are shared.
-
-        Args:
-            secrets: All the secrets to iterate over and deduct their directory structure.
-
-        Returns:
-            tuple: Data for the root folder, the personal folders and the shared folders.
-
-        """
-        root_folder_data = {'\\': []}
-        folders_data = defaultdict(list)
-        for secret in secrets:
-            if not any([secret.group_id, secret.shared_folder]):
-                root_folder_data['\\'].append(secret)
-                continue
-            if secret.group_id:
-                split_path = tuple(secret.group.split('\\'))
-                is_personal = True
-            if secret.shared_folder:
-                split_path = (tuple([secret.shared_folder.shared_name] + secret.group.split('\\'))
-                              if secret.group else tuple([secret.shared_folder.shared_name]))
-                is_personal = False
-            folder_metadata = FolderMetadata(split_path,
-                                             secret.group_id,
-                                             secret.encryption_key,
-                                             is_personal=is_personal)
-            folders_data[folder_metadata].append(secret)
-        return root_folder_data, folders_data
-
-    @staticmethod
-    def _get_parent_folder(folder, folders):
-        """Tries to identify the parent folder of a provided folder and return that from a list of folders.
-
-        Args:
-            folder: The folder to look the parent for.
-            folders: A list of all the folders.
-
-        Returns:
-            The parent folder of the mentioned folder if a match is found, else None.
-
-        """
-        return next((parent_folder for parent_folder in folders
-                     if tuple(folder.path[:-1]) == parent_folder.path), None)  # noqa
-
-    def _get_folder_objects(self, secrets_by_path, root_folder=None):
-        folder_objects = []
-        for folder_metadata, secrets in sorted(secrets_by_path.items()):
-            folder = Folder(folder_metadata.path[-1],
-                            folder_metadata.path,
-                            folder_metadata.id,
-                            folder_metadata.encryption_key,
-                            is_personal=folder_metadata.is_personal)
-            folder.add_secrets(secrets)
-            if len(folder.path) > 1:
-                folder_parent = self._get_parent_folder(folder, folder_objects)
-                if not folder_parent:
-                    folder_parent = Folder(folder.path[-2],
-                                           tuple(folder.path[:-1]),
-                                           id=None,
-                                           encryption_key=folder.encryption_key,
-                                           is_personal=folder_metadata.is_personal)
-                    folder_grandparent = self._get_parent_folder(folder_parent, folder_objects)
-                    if folder_grandparent:
-                        folder_grandparent.add_folder(folder_parent)
-                        folder_parent.parent = folder_grandparent
-                    folder_objects.append(folder_parent)
-                folder.parent = folder_parent
-                folder_parent.add_folder(folder)
-            else:
-                if root_folder:
-                    folder.parent = root_folder
-                    root_folder.add_folder(folder)
-            folder_objects.append(folder)
-        return folder_objects
-
     def get_folder_by_name(self, name):
         """Gets a folder by name.
 
@@ -467,6 +428,18 @@ class Lastpass:
             raise MultipleInstances(f'multiple instances of {name} found')
         return folders.pop()
 
+    def get_folder_by_path(self, path: str) -> Folder:
+        r"""Gets a folder by path.
+
+        Args:
+            path (str): A string with '\\' as seperator.
+
+        Returns:
+            Folder: The first folder it matched on based on path. None if no match found.
+
+        """
+        return next((folder for folder in self.folders if folder.path == tuple(path.split('\\'))), None)
+
     @property
     def folders(self):
         """All the folders of the vault.
@@ -475,18 +448,7 @@ class Lastpass:
             A list of all the folders of the vault.
 
         """
-        if self._folders is None:
-            root_folder_data, folders_data = self._parse_folder_groups(self.get_secrets())
-            root_folder = Folder('\\',
-                                 ('\\',),
-                                 id=None,
-                                 encryption_key=self._vault._key,
-                                 is_personal=True)
-            root_folder.secrets.extend(root_folder_data.get('\\'))
-            all_folders = [root_folder]
-            all_folders.extend(self._get_folder_objects(folders_data, root_folder))
-            self._folders = all_folders
-        return self._folders
+        return self.decrypted_vault.folders
 
     @property
     def root_folder(self):
@@ -519,11 +481,7 @@ class Lastpass:
             list: A list of shared folders.
 
         """
-        shared_names = [folder.shared_name for folder in self._shared_folders]
-        return [folder for folder in self.folders
-                if all([not folder.is_personal,
-                        folder.name in shared_names,
-                        len(folder.path) == 1])]
+        return [folder for folder in self.folders if all([not folder.is_personal, len(folder.path) == 1])]
 
     def get_secrets(self, filter_=None):
         """Gets secrets from the vault.
@@ -555,8 +513,21 @@ class Lastpass:
         if not secrets:
             return None
         if len(secrets) > 1:
-            raise MultipleInstances(f'More than one secrets with name {name} exist.')
+            raise MultipleInstances(f'More than one secrets with name "{name}" exist.')
         return secrets.pop()
+
+    def get_secret_by_full_path(self, path, name):
+        """Gets a secret from the vault by name.
+
+        Args:
+            path: The full path to the secret.
+            name: The name to match on, case-sensitive.
+
+        Returns:
+            The secret if a match is found, else None.
+
+        """
+        return next((secret for secret in self.get_secrets() if secret.full_path == path and secret.name == name), None)
 
     def get_secret_by_id(self, id_):
         """Gets a secret from the vault by id.
@@ -696,6 +667,7 @@ class Lastpass:
         if not secret:
             self._logger.error(f'Secret with id "{id_}" not found.')
             return False
+        self._logger.info(f'Deleting secret with id "{id_}".')
         return secret.delete()
 
     def get_passwords(self):
@@ -975,7 +947,7 @@ class Lastpass:
 
     @staticmethod
     def _validate_filter(filter_):
-        all_types = SECURE_NOTE_TYPES + ['Password']
+        all_types = SECURE_NOTE_TYPES + ['Password', 'SecureNote']
         filter_ = filter_ or all_types
         if not isinstance(filter_, (tuple, list)):
             filter_ = [filter_]
@@ -1023,3 +995,217 @@ class Lastpass:
         except Exception as exc:
             self._logger.debug(f'Error closing session, response: {exc}')
             return False
+
+    def _get_grouping_by_folder_path(self, folder_path: str, folder_is_personal=False):
+        r"""All folders after the root & shared folders are addressed by the term 'grouping'.
+
+          For the path 'FolderA\FolderB'
+          If it's a personal folder the grouping is the whole path.
+          In the case of a shared folder 'FolderA' is stripped.
+
+        Args:
+            folder_path (str): the path to the folders
+            folder_is_personal (bool, optional): Specifies if the base folder is a personal folder. Defaults to False.
+
+        Returns:
+            str: returns the grouping path.
+
+        """
+        if not folder_path:
+            return ''
+        folder_path = folder_path if '\\\\' in repr(folder_path) \
+            else folder_path.encode('unicode_escape').decode('utf-8')
+        if folder_is_personal:
+            return folder_path
+        return re.split(r'[\\]+', folder_path, 1)[1]
+
+    def _get_base_folder_by_path(self, folder_path: str) -> Folder:
+        """Get the first folder specified in the given path.
+
+        Args:
+            folder_path (str): the path to the folders.
+
+        Returns:
+            Folder: Folder object is folder is found, None otherwise.
+
+        """
+        if not folder_path:
+            return self.get_folder_by_name('\\')
+        folder_path = folder_path.encode('unicode_escape').decode('utf-8')
+        base_path = '' if not folder_path else re.split(r'[\\]+', folder_path)[0]
+        folder = self.get_folder_by_path(base_path)
+        if not folder:
+            self._logger.error(f'No folder found for path "{base_path}"')
+            raise UnknownFolder
+        return folder
+
+    def _create_secret(self, type_: str, name: str, remote_payload: dict):
+        """Function used to create any kind of secret.
+
+        Args:
+            type_ (str): type of secret.
+            name (str): name.
+            remote_payload (dict): payload.
+
+        Returns:
+            Response: the response from the API server.
+
+        """
+        payload_string = "&".join([f'{key}={value}' for key, value in remote_payload.items()])
+        headers = {'content-type': 'application/x-www-form-urlencoded'}
+        url = self.show_endpoint
+        response = self.session.post(url, headers=headers, data=payload_string)
+        result = self._validate_action_response(response)
+        self._logger.info(f'{type_.__name__} "{name}" created.')
+        return result
+
+    def create_password(self,  # pylint: disable=too-many-locals,too-many-arguments
+                        name: str,
+                        url: str = None,
+                        folder_path: str = None,
+                        username: str = None,
+                        password: str = None,
+                        totp: str = None,
+                        notes: str = None,
+                        pwprotect: bool = False,
+                        auto_login: bool = False,
+                        autofill: bool = False,
+                        favorite: bool = False) -> bool:
+        """
+        Creates a password.
+
+        Args:
+            name (str): name
+            url (str, optional): url. Defaults to None.
+            folder_path (str, optional): folder path. Defaults to None.
+            username (str, optional): username. Defaults to None.
+            password (str, optional): password. Defaults to None.
+            totp (str, optional): totp. Defaults to None.
+            notes (str, optional): notes. Defaults to None.
+            pwprotect (bool, optional): pwprotect. Defaults to False.
+            auto_login (bool, optional): auto_login. Defaults to False.
+            autofill (bool, optional): autofill. Defaults to False.
+            favorite (bool, optional): favorite. Defaults to False.
+
+        Returns:
+            bool: True at success, False at failure.
+
+        """
+        type_ = Password
+        base_folder = self._get_base_folder_by_path(folder_path)
+        grouping = self._get_grouping_by_folder_path(folder_path, base_folder.is_personal)
+        encrypt_and_encode = partial(EncryptManager.encrypt_and_encode_payload, base_folder.encryption_key)
+        remote_payload = {
+            'autofill': 'on' if autofill else '',
+            'autologin': 'on' if auto_login else '',
+            'encuser': urllib.parse.quote(self.encrypted_username, safe=''),
+            'extra': encrypt_and_encode(notes),
+            'fav': 'on' if favorite else '',
+            'grouping': encrypt_and_encode(grouping),
+            'n': name.encode('utf-8').hex(),
+            'name': encrypt_and_encode(name),
+            'password': encrypt_and_encode(password),
+            'pwprotect': 'on' if pwprotect else '',
+            'requesthash': urllib.parse.quote(self.encrypted_username, safe=''),
+            'sentms': f"{time.time_ns() // 1_000_000}",
+            'sharedfolderid': '' if base_folder.is_personal else base_folder.id,
+            'token': urllib.parse.quote(self.csrf_token, safe=''),
+            'totp': encrypt_and_encode(totp),
+            'url': url.encode().hex() if url else '',
+            'username': encrypt_and_encode(username),
+        }
+        remote_payload = dict(Configurations.secret_payload, **remote_payload)
+        parsed_response = self._create_secret(type_, name, remote_payload)
+        result = parsed_response.find('result')
+        secret_id_ = result.attrib.get('aid')
+        if not secret_id_:
+            raise UnknownAccountID
+        local_payload = {
+            "type": type_,
+            "encryption_key": base_folder.encryption_key,
+            "is_favorite": favorite,
+            "group": grouping,
+            "group_id": base_folder.id,
+            "id": secret_id_,
+            "name": name,
+            "mfa_seed": totp,
+            "notes": notes,
+            "url": url,
+            "username": username,
+            "password": password,
+            "created_gmt": int(time.time()),
+            "shared_folder_id": None if base_folder.is_personal else base_folder.id
+        }
+        return self.decrypted_vault.create_secret(type_, local_payload)
+
+    def create_secure_note(self,
+                           name: str,
+                           folder_path: str = None,
+                           notes: str = None,
+                           favorite: bool = False) -> bool:
+        """Creates a secure note.
+
+        Args:
+            name (str): name.
+            folder_path (str, optional): folder path. Defaults to None.
+            notes (str, optional): notes. Defaults to None.
+            favorite (bool, optional): favorite. Defaults to False.
+
+        Returns:
+            bool: True at success, False at failure.
+
+        """
+        type_ = SecureNote
+        base_folder = self._get_base_folder_by_path(folder_path)
+        grouping = self._get_grouping_by_folder_path(folder_path, base_folder.is_personal)
+        encrypt_and_encode = partial(EncryptManager.encrypt_and_encode_payload, base_folder.encryption_key)
+        remote_payload = {
+            'encuser': urllib.parse.quote(self.encrypted_username, safe=''),
+            'extra': encrypt_and_encode(notes),
+            'fav': 'on' if favorite else '',
+            'grouping': encrypt_and_encode(grouping),
+            'hexName': name.encode('utf-8').hex(),
+            'n': name.encode('utf-8').hex(),
+            'name': encrypt_and_encode(name),
+            'requesthash': urllib.parse.quote(self.encrypted_username, safe=''),
+            'sentms': f"{time.time_ns() // 1_000_000}",
+            'sharedfolderid': '' if base_folder.is_personal else base_folder.id,
+            'token': urllib.parse.quote(self.csrf_token, safe=''),
+        }
+        remote_payload = dict(Configurations.secure_note_payload, **remote_payload)
+        parsed_response = self._create_secret(type_, name, remote_payload)
+        result = parsed_response.find('result')
+        secret_id_ = result.attrib.get('aid')
+        if not secret_id_:
+            raise UnknownAccountID
+        local_payload = {
+            "type": type_,
+            "encryption_key": base_folder.encryption_key,
+            "is_favorite": favorite,
+            "group": grouping,
+            "group_id": base_folder.id,
+            "id": secret_id_,
+            "name": name,
+            "notes": notes,
+            "created_gmt": int(time.time()),
+            "shared_folder_id": None if base_folder.is_personal else base_folder.id
+        }
+        return self.decrypted_vault.create_secret(type_, local_payload)
+
+    def move_secret_to_folder(self, secret_full_path: str, folder_path: str) -> bool:
+        """Moving a secret from a folder to another folder.
+
+        Args:
+            secret_full_path (str): the path where the current secret is stored.
+            folder_path (str): location to the folder where the secret should move to.
+
+        Returns:
+            bool: True at success, False at failure.
+
+        """
+        source_folder_path, _, secret_name = secret_full_path.rpartition('\\')
+        secret = self.get_secret_by_full_path(source_folder_path, secret_name)
+        if not secret:
+            self._logger.error(f'Could not find secret "{secret_full_path}')
+            raise UnknownSecret
+        return secret.move_to_folder(folder_path)

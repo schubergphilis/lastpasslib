@@ -28,11 +28,10 @@ import os
 import shutil
 
 # this sets up everything and MUST be included before any third party module in every step
-import _initialize_template
 
 from bootstrap import bootstrap
 from emoji import emojize
-from configuration import BUILD_REQUIRED_FILES, LOGGING_LEVEL, PROJECT_SLUG
+from configuration import BUILD_REQUIRED_FILES, PROJECT_SLUG
 from library import execute_command, clean_up, save_requirements
 
 # This is the main prefix used for logging
@@ -57,7 +56,7 @@ def build():
     save_requirements()
     for file in BUILD_REQUIRED_FILES:
         shutil.copy(file, os.path.join(f'{PROJECT_SLUG}', file))
-    success = execute_command('python setup.py sdist bdist_egg')
+    success = execute_command('python setup.py sdist')
     if success:
         LOGGER.info('%s Successfully built artifact %s',
                     emojize(':check_mark_button:'),

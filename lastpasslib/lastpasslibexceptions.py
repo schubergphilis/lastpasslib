@@ -35,7 +35,7 @@ __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
 __date__ = '''08-02-2023'''
 __copyright__ = '''Copyright 2023, Costas Tyfoxylos'''
-__credits__ = ["Costas Tyfoxylos"]
+__credits__ = ["Costas Tyfoxylos", "Yorick Hoorneman"]
 __license__ = '''MIT'''
 __maintainer__ = '''Costas Tyfoxylos'''
 __email__ = '''<ctyfoxylos@schubergphilis.com>'''
@@ -88,3 +88,23 @@ class UnknownIP(Exception):
 
 class MobileDevicesRestricted(Exception):
     """Mobile devices are restricted on the Account settings of lastpass."""
+
+
+class MissingResult(Exception):
+    """Server response does not contain a result."""
+
+
+class UnknownFolder(Exception):
+    """No folder is found."""
+
+
+class UnknownAccountID(Exception):
+    """No Account ID is found."""
+
+
+class RemoteCommandInvalidResult(Exception):
+    """The result of the Remote Command is not valid."""
+
+
+class UnknownSecret(Exception):
+    """No secret is found."""
