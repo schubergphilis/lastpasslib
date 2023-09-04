@@ -361,7 +361,7 @@ class Secret:
             self.group = grouping
             shared_folder = self._lastpass._decrypted_vault._get_shared_folder_by_id(destination_base_folder.id)
             self._shared_folder = shared_folder
-            self._lastpass._decrypted_vault.clear_folders()  # pylint: disable=protected-access
+        self._lastpass._decrypted_vault.clear_folders()  # pylint: disable=protected-access
         return response.ok
 
     @property
