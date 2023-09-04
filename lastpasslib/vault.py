@@ -451,6 +451,7 @@ class DecryptedVault:
 
     def delete_secret_by_id(self, id_):
         self.secrets = [secret for secret in self.secrets if secret.id != id_]
+        self.clear_folders()
 
     def create_secret(self, secret_type, data):
         shared_folder = self._get_shared_folder_by_id(data.get('shared_folder_id'))

@@ -53,7 +53,7 @@ class Configurations:
         'localupdate': '1',
         'method': 'cr',
         'requestsrc': 'cr',
-        'source': 'vault', 
+        'source': 'vault',
     }
     secret_payload = {
         **default,
