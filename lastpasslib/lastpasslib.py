@@ -1136,7 +1136,7 @@ class Lastpass:
             "created_gmt": int(time.time()),
             "shared_folder_id": None if base_folder.is_personal else base_folder.id
         }
-        return self.decrypted_vault.create_secret(local_payload, type_)
+        return self.decrypted_vault.create_secret(type_, local_payload)
 
     def create_secure_note(self,
                            name: str,
@@ -1190,7 +1190,7 @@ class Lastpass:
             "created_gmt": int(time.time()),
             "shared_folder_id": None if base_folder.is_personal else base_folder.id
         }
-        return self.decrypted_vault.create_secret(local_payload, type_)
+        return self.decrypted_vault.create_secret(type_, local_payload)
 
     def move_secret_to_folder(self, secret_full_path: str, folder_path: str) -> bool:
         """Moving a secret from a folder to another folder.
