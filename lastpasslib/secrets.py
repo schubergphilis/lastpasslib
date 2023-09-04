@@ -39,8 +39,9 @@ import time
 from copy import copy
 from datetime import datetime
 from pathlib import Path
-from base64 import b64encode
 from dateutil.parser import parse
+
+from lastpasslib.lastpasslibexceptions import RemoteCommandInvalidResult, UnknownAccountID
 
 from .configuration import LASTPASS_VERSION, Configurations
 from .encryption import EncryptManager
@@ -178,6 +179,13 @@ class Secret:
         self._data['group_id'] = value
 
     @property
+    def full_path(self):
+        """The full path of where the secret is stored."""
+        if self._shared_folder:
+            return fr'{self._shared_folder.shared_name}\{self.group}' if self.group else self._shared_folder.shared_name
+        return self.group if self.group else ''
+
+    @property
     def has_attachment(self):
         """Flag of whether the secret has attachments."""
         return bool(self._data.get('has_attachment'))
@@ -283,7 +291,7 @@ class Secret:
             return False
         self._lastpass.decrypted_vault.delete_secret_by_id(self.id)
         folder_id = self.shared_folder.id if self.shared_folder else self.group_id
-        self._logger.info(f'Deleted {self.type.lower()} name: "{self.name}"'
+        self._logger.info(f'Deleted {self.type.lower()} name: "{self.name}" '
                           f'group: "{self.group}" folder id: "{folder_id}".')
         return True
 
@@ -297,42 +305,18 @@ class Secret:
             bool: True at success, False at failure.
 
         """
-        destination_base_folder = self._lastpass._get_base_folder_by_path(folder_path)
+        escaped_path = folder_path if '\\\\' in repr(folder_path) \
+            else folder_path.encode('unicode_escape').decode('utf-8')
+        if self.full_path == escaped_path:
+            self._logger.info(f'Secret "{self.name}" is already in the desired folder "{escaped_path}"')
+            return False
+        destination_base_folder = self._lastpass._get_base_folder_by_path(folder_path)  # pylint: disable=protected-access
         if not destination_base_folder:
             self._logger(f'No folder found for "{folder_path}".')
             return False
-        # a lot of if statements in order to verify if the secret is being moved to the same destination
-        # and to give correct logging about where the secret is moved from and to.
-
-        # the problem is that:
-        # grouping contains the full path when the folder is personal
-        # if no grouping exists the folder is needed
-        # if its not personal, then folder and grouping are needed, if grouping exists.
-
-        if (self.group_id or self.shared_folder is not None):
-            source_folder = self._lastpass._get_folder_by_id(self.group_id) if self.group_id \
-                            else self._lastpass.get_folder_by_name(self.shared_folder.shared_name)
-        else:
-            source_folder = self._lastpass.get_folder_by_name('\\')
-
-        grouping = self._lastpass._get_grouping_by_folder_path(folder_path, destination_base_folder.is_personal)
-        if destination_base_folder.is_personal:
-            destination_full_path = grouping if grouping else destination_base_folder.full_path
-        else:
-            destination_full_path = f"{destination_base_folder.full_path}\{grouping}" if grouping \
-                                    else destination_base_folder.full_path
-
-        if source_folder.is_personal:
-            source_full_path = self.group if self.group else source_folder.full_path
-        else:
-            source_full_path = f"{source_folder.full_path}\{self.group}" if self.group else source_folder.full_path
-
-        if ((source_folder.id == destination_base_folder.id) and (self.group == grouping)):
-            self._logger.info(f'Secret "{self.name}" is already in the desired folder "{destination_full_path}"')
-            return False
-
-        self._logger.info(f'Moving secret "{self.name}" from "{source_full_path}" to "{destination_full_path}"')
-        encrypt_and_encode = partial(Payload._encrypt_and_encode_payload, destination_base_folder.encryption_key)
+        self._logger.info(f'Moving secret "{self.name}" from "{self.full_path}" to "{escaped_path}"')
+        encrypt_and_encode = partial(EncryptManager.encrypt_and_encode_payload, destination_base_folder.encryption_key)
+        grouping = self._lastpass._get_grouping_by_folder_path(folder_path, destination_base_folder.is_personal)  # pylint: disable=protected-access
         payload = {
             'encuser': urllib.parse.quote(self._lastpass.encrypted_username, safe=''),
             'extra0': encrypt_and_encode(self.notes),
@@ -352,21 +336,21 @@ class Secret:
             'username0': encrypt_and_encode(self._lastpass.username),
         }
         payload = dict(Configurations.move_secrets_payload, **payload)
-        if (source_folder and not source_folder.is_personal):
-            payload['origsharedfolderid'] = source_folder.id
+        if self.shared_folder is not None:
+            payload['origsharedfolderid'] = self.shared_folder.id
         headers = {'content-type': 'application/x-www-form-urlencoded'}
         payload_string = "&".join([f'{key}={value}' for key, value in payload.items()])
-        url = f'{self._lastpass.host}/lastpass/api.php'
+        url = self._lastpass.api_endpoint_api
         response = self._lastpass.session.post(url, headers=headers, data=payload_string)
-        parsed_response = self._lastpass._validate_authentication_response(response)
-        if getattr(parsed_response, 'attrib').get('rc') != "OK":
-            self.error(f'Failed to move secret "{self.name}" from "{source_folder.name}"'
-                       f'to "{folder_path}. Error: {parsed_response}"')
-            # raise custom error?
+        parsed_response = self._lastpass._validate_authentication_response(response)  # pylint: disable=protected-access
+        if getattr(parsed_response, 'attrib', {}).get('rc') != 'OK':
+            self._logger.error(f'Failed to move secret "{self.name}" from "{self.full_path}"'
+                               f'to "{escaped_path}. Error: {parsed_response}"')
+            raise RemoteCommandInvalidResult
         secret_id_ = parsed_response.find('result').attrib.get('aid')
         if not secret_id_:
             self._loggers.error(f'No ID found in the response after creating the secret "{self.name}"')
-            return False
+            raise UnknownAccountID
         self.id = secret_id_
         if destination_base_folder.is_personal:
             self._shared_folder = None
@@ -378,29 +362,6 @@ class Secret:
             shared_folder = self._lastpass._decrypted_vault._get_shared_folder_by_id(destination_base_folder.id)
             self._shared_folder = shared_folder
         return response.ok
-
-        # # remove locally
-        # self._lastpass.decrypted_vault.delete_secret_by_id(self.id)
-        # # re-create locally
-        # secret_id_ = parsed_response.find('result').attrib.get('aid')
-        # if not secret_id_:
-        #     self._loggers.error(f'No ID found in the response after creating the secret "{self.name}"')
-        #     return False
-        # local_payload = {
-        #     "type": self.type,
-        #     "encryption_key": destination_base_folder.encryption_key,
-        #     "is_favorite": self.is_favorite,
-        #     "group": grouping,
-        #     "group_id": destination_base_folder.id,
-        #     "id": secret_id_,
-        #     "name": self.name,
-        #     "notes": self.notes,
-        #     "created_gmt": int(time.time()),
-        #     "shared_folder_id": None if destination_base_folder.is_personal else destination_base_folder.id
-        # }
-        # self._lastpass.decrypted_vault.create_secret(local_payload)
-
-        # return response.ok
 
     @property
     def shared_to_people(self):
@@ -935,26 +896,3 @@ class Attachment:
         """
         with open(Path(path, self.filename), 'w', encoding='utf8') as ofile:
             ofile.write(self.content)
-
-
-class Payload():
-
-    @staticmethod
-    def _encrypt_and_encode_payload(encryption_key: str, payload: str) -> str:
-        """aes256_cbc encrypting and encoding a payload.
-
-        Args:
-            encryption_key (str): _description_
-            payload (str): _description_
-
-        Returns:
-            str: _description_
-
-        """
-        if not all([payload and encryption_key]):
-            return ''
-        iv = EncryptManager.create_random_iv()
-        encrypted_attribute = EncryptManager.encrypt_aes256_cbc(iv, payload.encode(), encryption_key)
-        url_encoded_data = urllib.parse.quote(f'{b64encode(iv).decode("utf-8")}'
-                                              f'|{b64encode(encrypted_attribute).decode("utf-8")}', safe='')
-        return f'!{url_encoded_data}'

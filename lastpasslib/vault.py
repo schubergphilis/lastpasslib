@@ -46,7 +46,7 @@ from binascii import hexlify
 from .datamodels import Folder, FolderMetadata, NeverUrl, EquivalentDomain, SharedFolder, UrlRule
 from .dataschemas import SecretSchema, SharedFolderSchema, AttachmentSchema
 from .encryption import Blob, EncryptManager, Stream
-from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom, FolderEntry, SecureNote
+from .secrets import Password, SECRET_NOTE_CLASS_MAPPING, Attachment, Custom, FolderEntry
 
 LOGGER_BASENAME = 'vault'
 LOGGER = logging.getLogger(LOGGER_BASENAME)
@@ -140,7 +140,8 @@ class Vault:
                               never_urls,
                               equivalent_domains,
                               url_rules, secrets,
-                              encryption_key, folder_entries,
+                              encryption_key,
+                              folder_entries,
                               shared_folders)
 
     @staticmethod
@@ -451,20 +452,11 @@ class DecryptedVault:
     def delete_secret_by_id(self, id_):
         self.secrets = [secret for secret in self.secrets if secret.id != id_]
 
-    def create_secret(self, data):
-        types = {
-            "password": Password,
-            "secure note": SecureNote,
-            "folder entry": FolderEntry
-        }
-        secret_type = types.get(data.get('type', '').lower())
-        if not secret_type:
-            self._logger.error(f'Unknown secret type, no secret type found for "{data.get("type", "").lower()}"')
-            return False
+    def create_secret(self, data, secret_type):
         shared_folder = self._get_shared_folder_by_id(data.get('shared_folder_id'))
         secret = secret_type(self._lastpass, data, shared_folder)
         self.secrets.append(secret)
-        self._folders = None
+        self.clear_folders()
         return True
 
     def clear_folders(self):

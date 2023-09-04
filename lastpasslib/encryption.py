@@ -35,7 +35,7 @@ import codecs
 import os
 import re
 import struct
-from base64 import b64decode
+from base64 import b64decode, b64encode
 from io import BytesIO
 
 from Crypto.Cipher import AES
@@ -45,6 +45,7 @@ from binascii import Error as BinasciiError
 
 from lastpasslib.datamodels import Chunk
 from lastpasslib.lastpasslibexceptions import ServerError
+import urllib
 
 __author__ = '''Costas Tyfoxylos <ctyfoxylos@schubergphilis.com>'''
 __docformat__ = '''google'''
@@ -389,3 +390,23 @@ class EncryptManager:
         """
         padding = (block_size - len(data) % block_size) * chr(block_size - len(data) % block_size)
         return data + padding.encode()
+
+    @staticmethod
+    def encrypt_and_encode_payload(encryption_key: str, payload: str) -> str:
+        """aes256_cbc encrypting and encoding a payload.
+
+        Args:
+            encryption_key (str): _description_
+            payload (str): _description_
+
+        Returns:
+            str: _description_
+
+        """
+        if not all([payload and encryption_key]):
+            return ''
+        iv = EncryptManager.create_random_iv()
+        encrypted_attribute = EncryptManager.encrypt_aes256_cbc(iv, payload.encode(), encryption_key)
+        url_encoded_data = urllib.parse.quote(f'{b64encode(iv).decode("utf-8")}'
+                                              f'|{b64encode(encrypted_attribute).decode("utf-8")}', safe='')
+        return f'!{url_encoded_data}'

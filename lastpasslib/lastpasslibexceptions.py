@@ -92,3 +92,15 @@ class MobileDevicesRestricted(Exception):
 
 class MissingResult(Exception):
     """Server response does not contain a result."""
+
+
+class UnknownFolder(Exception):
+    """No folder is found."""
+
+
+class UnknownAccountID(Exception):
+    """No Account ID is found."""
+
+
+class RemoteCommandInvalidResult(Exception):
+    """The result of the Remote Command is not valid."""
