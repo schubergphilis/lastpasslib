@@ -515,7 +515,7 @@ class Lastpass:
         if len(secrets) > 1:
             raise MultipleInstances(f'More than one secrets with name "{name}" exist.')
         return secrets.pop()
-    
+
     def get_secret_by_full_path(self, path, name):
         """Gets a secret from the vault by name.
 
