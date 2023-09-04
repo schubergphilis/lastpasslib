@@ -45,29 +45,25 @@ LASTPASS_VERSION = '4.108.1'
 
 
 class Configurations:
-    secret_payload = {
+    default = {
         'aid': '0',
-        'ajax': '1',
         'auto': '1',
+        'ajax': '1',
         'extjs': '1',
-        'folder': 'none',
         'localupdate': '1',
         'method': 'cr',
         'requestsrc': 'cr',
-        'source': 'vault',
+        'source': 'vault', 
+    }
+    secret_payload = {
+        **default,
+        'folder': 'none',
         'urid': '0',
     }
     secure_note_payload = {
-        'aid': '0',
-        'auto': '1',
-        'ajax': '1',
-        'extjs': '1',
-        'localupdate': '1',
-        'method': 'cr',
+        **default,
         'notetype': 'Generic',
         'password': '',
-        'requestsrc': 'cr',
-        'source': 'vault',
         'template': '',
         'u': '',
         'url': '',
