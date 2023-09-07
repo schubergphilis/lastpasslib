@@ -349,7 +349,7 @@ class Secret:
             raise RemoteCommandInvalidResult
         secret_id_ = parsed_response.find('result').attrib.get('aid')
         if not secret_id_:
-            self._loggers.error(f'No ID found in the response after creating the secret "{self.name}"')
+            self._logger.error(f'No ID found in the response after creating the secret "{self.name}"')
             raise UnknownAccountID
         self.id = secret_id_
         if destination_base_folder.is_personal:
