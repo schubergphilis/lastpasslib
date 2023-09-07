@@ -103,3 +103,9 @@ History
 ------------------
 
 * Implementing creating and moving of secrets.
+
+
+1.0.1 (07-09-2023)
+------------------
+
+* Fix typo error.
