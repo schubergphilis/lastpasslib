@@ -879,8 +879,7 @@ class Attachment:
             url = f'{self._lastpass_instance.host}/getattach.php'
             data = {'getattach': self.uuid}
             response = self._lastpass_instance.session.post(url, data=data)
-            if not response.ok:
-                response.raise_for_status()
+            response.raise_for_status()
             base64_encoded = EncryptManager.decrypt_aes256_auto(response.content, self._decryption_key, base64=True)
             self._content = base64.b64decode(base64_encoded).decode('utf-8')
         return self._content
