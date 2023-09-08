@@ -923,5 +923,5 @@ class Attachment:
         # makes sure we don't land in a race condition where the mode is not appropriately set before trying to save
         # the contents.
         arguments = {'mode': 'wt', 'encoding': 'utf-8'} if self._text_mode else {'mode': 'wb'}
-        with open(Path(path, self.filename), **arguments) as ofile:  # pylint: disable=unspecified-encoding
+        with open(Path(path, self.filename), **arguments) as ofile:  # noqa
             ofile.write(content)
