@@ -245,6 +245,9 @@ class Lastpass:
             self._authenticated_response_data = data
         return session
 
+    def refresh_session(self, mfa=None, client_id=None):
+        self.session = self._get_authenticated_session(self.username, mfa, client_id)
+
     @property
     def _shared_folders_data(self):
         """A list of the shared folders of lastpass."""
