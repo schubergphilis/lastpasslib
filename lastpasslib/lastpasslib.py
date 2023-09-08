@@ -166,8 +166,7 @@ class Lastpass:
 
     @staticmethod
     def _validate_authentication_response(response):
-        if not response.ok:
-            response.raise_for_status()
+        response.raise_for_status()
         try:
             parsed_response = Etree.fromstring(response.content)
         except ParseError:
