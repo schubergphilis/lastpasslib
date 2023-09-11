@@ -109,3 +109,9 @@ History
 ------------------
 
 * Fix typo error.
+
+
+1.1.0 (11-09-2023)
+------------------
+
+* Implement session refresh. Fix attachment retrieval for attachments in shared folders. Properly identify the attachment mode (text, binary)
