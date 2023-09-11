@@ -166,8 +166,7 @@ class Lastpass:
 
     @staticmethod
     def _validate_authentication_response(response):
-        if not response.ok:
-            response.raise_for_status()
+        response.raise_for_status()
         try:
             parsed_response = Etree.fromstring(response.content)
         except ParseError:
@@ -244,6 +243,9 @@ class Lastpass:
             session.cookies.set('PHPSESSID', data.get('sessionid'), domain=self.domain)
             self._authenticated_response_data = data
         return session
+
+    def refresh_session(self, mfa=None, client_id=None):
+        self.session = self._get_authenticated_session(self.username, mfa, client_id)
 
     @property
     def _shared_folders_data(self):

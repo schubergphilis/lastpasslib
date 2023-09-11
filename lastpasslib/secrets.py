@@ -836,6 +836,7 @@ class Attachment:
         self._filename = None
         self._decryption_key_ = None
         self._content = None
+        self._text_mode = 'txt' in self.mimetype.lower()
 
     @property
     def id(self):
@@ -846,6 +847,10 @@ class Attachment:
     def parent_id(self):
         """ID of the parent secret of the attachment."""
         return self._data.get('parent_id')
+
+    @property
+    def parent_secret(self):
+        return self._lastpass_instance.get_secret_by_id(self._data.get('parent_id'))
 
     @property
     def mimetype(self):
@@ -872,17 +877,33 @@ class Attachment:
                                                                 base64=True).decode('utf-8')
         return self._filename
 
+    def _get_remote_content(self):
+        url = f'{self._lastpass_instance.host}/getattach.php'
+        data = {'getattach': self.uuid}
+        if self.parent_secret.shared_folder:
+            data.update({'sharedfolderid': self.parent_secret.shared_folder.id})
+        response = self._lastpass_instance.session.post(url, data=data)
+        response.raise_for_status()
+        return response.content
+
+    def _decrypt_content(self, content):
+        base64_encoded = EncryptManager.decrypt_aes256_auto(content, self._decryption_key, base64=True)
+        content = base64.b64decode(base64_encoded)
+        if self._text_mode:
+            try:
+                content = content.decode('utf-8')
+            except UnicodeDecodeError:
+                LOGGER.warning(f'Could not base64 decode content for attachment {self.filename} '
+                               f'of secret {self.parent_secret.name} although it appears to be a text file. '
+                               f'It is probably a mis-labeled binary file.')
+                self._text_mode = False
+        return content
+
     @property
     def content(self):
         """The content of the attachment."""
         if self._content is None:
-            url = f'{self._lastpass_instance.host}/getattach.php'
-            data = {'getattach': self.uuid}
-            response = self._lastpass_instance.session.post(url, data=data)
-            if not response.ok:
-                response.raise_for_status()
-            base64_encoded = EncryptManager.decrypt_aes256_auto(response.content, self._decryption_key, base64=True)
-            self._content = base64.b64decode(base64_encoded).decode('utf-8')
+            self._content = self._decrypt_content(self._get_remote_content())
         return self._content
 
     def save(self, path='.'):
@@ -895,5 +916,12 @@ class Attachment:
             None.
 
         """
-        with open(Path(path, self.filename), 'w', encoding='utf8') as ofile:
-            ofile.write(self.content)
+        content = self.content
+        # we need to access the content property for the remote content to be retrieved, decrypted and identified if
+        # it is text or binary before we set the appropriate arguments. There are cases where an attachment might be
+        # identified as a txt mimetype but it can hold binary data (ex: p12). Accessing the content before anything
+        # makes sure we don't land in a race condition where the mode is not appropriately set before trying to save
+        # the contents.
+        arguments = {'mode': 'wt', 'encoding': 'utf-8'} if self._text_mode else {'mode': 'wb'}
+        with open(Path(path, self.filename), **arguments) as ofile:  # noqa
+            ofile.write(content)
