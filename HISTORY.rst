@@ -115,3 +115,9 @@ History
 ------------------
 
 * Implement session refresh. Fix attachment retrieval for attachments in shared folders. Properly identify the attachment mode (text, binary)
+
+
+1.1.1 (01-11-2023)
+------------------
+
+* Release testing.
