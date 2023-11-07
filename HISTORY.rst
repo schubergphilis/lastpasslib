@@ -121,3 +121,9 @@ History
 ------------------
 
 * Release testing.
+
+
+1.1.2 (07-11-2023)
+------------------
+
+* testing release
