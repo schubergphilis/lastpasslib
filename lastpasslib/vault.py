@@ -186,7 +186,6 @@ class Vault:
         stream = Stream(payload)
         secret = SecretSchema()
         data = Vault._get_attribute_payload_data(stream, secret.attributes)
-        t1 = data["url"]
         data.update(Vault._transform_data_attributes(data,
                                                      secret.plain_encrypted,
                                                      EncryptManager.decrypt_aes256_auto,
@@ -209,10 +208,6 @@ class Vault:
         data.update(Vault._transform_data_attributes(data,
                                                      secret.boolean_values,
                                                      lambda x: bool(int(x))))
-        t2 = data["url"]
-        if t1 != t2 and t2 is None:
-            sad = EncryptManager.Try_decode(t1, encryption_key)
-            print(sad)
         data['encryption_key'] = encryption_key
         if data.get('is_secure_note'):
             return Vault._parse_secure_note(data)
