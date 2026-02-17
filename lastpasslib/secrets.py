@@ -865,7 +865,7 @@ class Attachment:
     @property
     def _decryption_key(self):
         if self._decryption_key_ is None:
-            self._decryption_key_ = EncryptManager.decode_hex(self._data.get('decryption_key'))
+            self._decryption_key_ = EncryptManager.Try_decode(self._data.get('decryption_key'))
         return self._decryption_key_
 
     @property
