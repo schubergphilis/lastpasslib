@@ -216,25 +216,30 @@ class EncryptManager:
         if any([data is None, data == b'', data == '']):
             return None
         
+        # Try decoding as Hex first
         try:
-            # Try Hex
             return EncryptManager.decode_ToHex(data)
+        except Exception:
+            pass
 
-        except Exception as ex1:
-            #Try Base64-AES
-            try:
-                ret = EncryptManager.decode_base64_aes(data, encryption_key)
-                if ret is None:
-                    raise Exception("convert failt")
-                return EncryptManager.decode_base64_aes(data, encryption_key)
-            except Exception as ex2:
-                try:
-                    return EncryptManager.decrypt_aes256_auto(data, encryption_key).decode("utf-8")
-                except Exception as ex3:
-                    # raise TypeError(
-                    #     "Unknow encode or error: " + str(ex3)
-                    # )
-                    return data
+        # Try decoding via Base64-AES
+        try:
+            result = EncryptManager.decode_base64_aes(data, encryption_key)
+            # Ensure the result is valid before returning
+            if result is not None:
+                return result
+        except Exception:
+            pass
+
+        # Try AES256 auto-decryption as a last resort
+        try:
+            decrypted = EncryptManager.decrypt_aes256_auto(data, encryption_key)
+            return decrypted.decode("utf-8")
+        except Exception:
+            pass
+
+    # If all attempts fail, return the original data
+    return data
 
     def decode_base64_aes(data, encryption_key=None):
         """Decodes a Base64 AES encoded string into raw bytes.
