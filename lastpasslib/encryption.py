@@ -195,10 +195,10 @@ class EncryptManager:
         return os.urandom(byte_size)
 
     @staticmethod
-    def Try_decode(data, encryption_key=None):
-        """Try to decodes encoded string into raw bytes.
+    def try_decode(data, encryption_key=None):
+        """Try to decode encoded string into raw bytes.
         Check if Hex, Base64-AES or unknown
-        Unknow throws error
+        Unknown throws error
 
         Args:
             data: The data to decode
@@ -213,13 +213,8 @@ class EncryptManager:
         """
 
         
-        if data is None:
+        if any([data is None, data == b'', data == '']):
             return None
-
-        if data == b"" or data == "":
-            # Leer, aber gültig → direkt zurückgeben
-            return data
-
         
         try:
             # Try Hex
@@ -228,10 +223,10 @@ class EncryptManager:
         except Exception as ex1:
             #Try Base64-AES
             try:
-                ret = EncryptManager.decode_ToBase64_AES(data, encryption_key)
+                ret = EncryptManager.decode_base64_aes(data, encryption_key)
                 if ret is None:
                     raise Exception("convert failt")
-                return EncryptManager.decode_ToBase64_AES(data, encryption_key)
+                return EncryptManager.decode_base64_aes(data, encryption_key)
             except Exception as ex2:
                 try:
                     return EncryptManager.decrypt_aes256_auto(data, encryption_key).decode("utf-8")
@@ -241,7 +236,7 @@ class EncryptManager:
                     # )
                     return data
 
-    def decode_ToBase64_AES(data, encryption_key=None):
+    def decode_base64_aes(data, encryption_key=None):
         """Decodes a Base64 AES encoded string into raw bytes.
 
         Args:
@@ -332,10 +327,10 @@ class EncryptManager:
             A decrypted RSA key.
 
         """
-        decrypted = EncryptManager.Try_decode(payload, encryption_key)
+        decrypted = EncryptManager.try_decode(payload, encryption_key)
         regex_match = br'^LastPassPrivateKey<(?P<hex_key>.*)>LastPassPrivateKey$'
         hex_key = re.match(regex_match, decrypted).group('hex_key')
-        rsa_key = RSA.importKey(EncryptManager.Try_decode(hex_key, encryption_key))
+        rsa_key = RSA.importKey(EncryptManager.try_decode(hex_key, encryption_key))
         rsa_key.dmp1 = rsa_key.d % (rsa_key.p - 1)
         rsa_key.dmq1 = rsa_key.d % (rsa_key.q - 1)
         rsa_key.iqmp = number.inverse(rsa_key.q, rsa_key.p)

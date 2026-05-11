@@ -151,9 +151,9 @@ class Vault:
     @staticmethod
     def _utf8_or_decrypt(x, encryption_key):
         """
-        Versucht zuerst UTF-8-Decode.
-        Falls das fehlschlägt oder der Wert das LastPass-Format für AES-CBC trägt,
-        wird per decrypt_aes256_auto entschlüsselt und danach UTF-8 dekodiert.
+        First, an attempt is made to decode using UTF-8.
+        If this fails, or if the value matches the LastPass format for AES-CBC,
+        it is decrypted using `decrypt_aes256_auto` and subsequently decoded using UTF-8.
         """
         if x is None:
             return None
@@ -197,7 +197,7 @@ class Vault:
                                                                 'base64': True}))
         data.update(Vault._transform_data_attributes(data,
                                                      secret.hex_decoded,
-                                                     EncryptManager.Try_decode,
+                                                     EncryptManager.try_decode,
                                                      arguments={"encryption_key": encryption_key}))
 
         data.update(Vault._transform_data_attributes(data,
@@ -284,7 +284,7 @@ class Vault:
         stream = Stream(payload)
         attributes = ['url', 'exact_host', 'exact_port', 'case_insensitive']
         data = Vault._get_attribute_payload_data(stream, attributes)
-        data['url'] = EncryptManager.Try_decode(data['url'], key)
+        data['url'] = EncryptManager.try_decode(data['url'], key)
         data.update(Vault._transform_data_attributes(data,
                                                      attributes,
                                                      lambda x: x.decode('utf-8')))
@@ -308,7 +308,7 @@ class Vault:
                                                      attributes,
                                                      lambda x: x.decode('utf-8')))
         return EquivalentDomain(int(data.get('id')),
-                                EncryptManager.Try_decode(data.get('url'), key).decode('utf-8'))
+                                EncryptManager.try_decode(data.get('url'), key).decode('utf-8'))
 
     @staticmethod
     def _get_eqdns(blob, key=None):
@@ -324,7 +324,7 @@ class Vault:
                                                      attributes,
                                                      lambda x: x.decode('utf-8')))
         return NeverUrl(int(data.get('id')),
-                        EncryptManager.Try_decode(data.get('url'), key).decode('utf-8'))
+                        EncryptManager.try_decode(data.get('url'), key).decode('utf-8'))
 
     @staticmethod
     def _get_never_urls(blob, key=None):
@@ -407,7 +407,7 @@ class Vault:
         data = Vault._get_attribute_payload_data(stream, folder.attributes)
         data.update(Vault._transform_data_attributes(data,
                                                      folder.hex_decoded,
-                                                     EncryptManager.Try_decode))
+                                                     EncryptManager.try_decode))
         key = data.get('key')
         # Shared folder encryption key might come already in pre-decrypted form,
         # where it's only AES encrypted with the regular encryption key.
@@ -417,7 +417,7 @@ class Vault:
             hex_key = PKCS1_OAEP.new(rsa_key).decrypt(data.get('encrypted_key'))
         else:
             hex_key = EncryptManager.decrypt_aes256_auto(key, encryption_key)
-        key = EncryptManager.Try_decode(hex_key, encryption_key)
+        key = EncryptManager.try_decode(hex_key, encryption_key)
         data['key'] = key
         data['name'] = EncryptManager.decrypt_aes256_auto(data.get('encrypted_name'), key, base64=True).decode('utf-8')
         data.update(Vault._transform_data_attributes(data,
