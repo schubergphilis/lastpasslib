@@ -151,30 +151,25 @@ class Vault:
     @staticmethod
     def _utf8_or_decrypt(x, encryption_key):
         """
-        First, an attempt is made to decode using UTF-8.
-        If this fails, or if the value matches the LastPass format for AES-CBC,
-        it is decrypted using `decrypt_aes256_auto` and subsequently decoded using UTF-8.
+        Handles mixed data formats by checking for encryption signatures 
+        before attempting decryption.
         """
-        if x is None:
-            return None
-
-        if isinstance(x, str):
+        if x is None or isinstance(x, str):
             return x
 
+        # Explicitly check for LastPass encryption signature
+        if x.startswith(b"!"):
+            try:
+                decrypted = EncryptManager.decrypt_aes256_auto(x, encryption_key)
+                return decrypted.decode("utf-8")
+            except Exception:
+                pass # Fallback to standard decode if decryption fails
+
+        # Default to standard UTF-8 for plain text
         try:
             return x.decode("utf-8")
-        except UnicodeDecodeError:
-            pass
-
-        if len(x) > 0 and x[:1] == b"!":
-            base64_flag = True
-
-            decrypted = EncryptManager.decrypt_aes256_auto(
-                x, encryption_key
-            )
-            return decrypted.decode("utf-8")
-
-        return x
+        except (UnicodeDecodeError, AttributeError):
+            return x
 
 
     @staticmethod
