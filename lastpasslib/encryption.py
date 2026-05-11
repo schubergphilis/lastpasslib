@@ -218,7 +218,7 @@ class EncryptManager:
         
         # Try decoding as Hex first
         try:
-            return EncryptManager.decode_ToHex(data)
+            return EncryptManager.decode_hex(data)
         except Exception:
             pass
 
@@ -283,7 +283,7 @@ class EncryptManager:
                 raise TypeError(f"Data is not Base64-AES: {data}") from None
 
     @staticmethod
-    def decode_ToHex(data):
+    def decode_hex(data):
         """Decodes a hex encoded string into raw bytes.
 
         Args:
