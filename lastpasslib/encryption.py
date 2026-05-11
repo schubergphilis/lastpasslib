@@ -238,8 +238,8 @@ class EncryptManager:
         except Exception:
             pass
 
-    # If all attempts fail, return the original data
-    return data
+        # If all attempts fail, return the original data
+        return data
 
     def decode_base64_aes(data, encryption_key=None):
         """Decodes a Base64 AES encoded string into raw bytes.
