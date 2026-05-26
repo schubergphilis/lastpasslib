@@ -128,9 +128,9 @@ class Vault:
         blob = Blob(data)
         encrypted_username = Vault._get_chunk_by_id(blob, 'ENCU').payload.decode('utf-8')
         attachments_data = self._get_attachments(blob)
-        never_urls = self._get_never_urls(blob)
-        equivalent_domains = self._get_eqdns(blob)
-        url_rules = self._get_url_rules(blob)
+        never_urls = self._get_never_urls(blob, self.key)
+        equivalent_domains = self._get_eqdns(blob, self.key)
+        url_rules = self._get_url_rules(blob, self.key)
         secrets, attachments, \
             folder_entries, shared_folders = self._get_secrets_folders_and_attachments(blob, attachments_data)
         encryption_key = self.key
@@ -147,6 +147,30 @@ class Vault:
     @staticmethod
     def _get_attribute_payload_data(stream, attributes):
         return {attribute: stream.get_payload_by_size(stream.read_byte_size(4)) for attribute in attributes}
+
+    @staticmethod
+    def _utf8_or_decrypt(x, encryption_key):
+        """
+        Handles mixed data formats by checking for encryption signatures 
+        before attempting decryption.
+        """
+        if x is None or isinstance(x, str):
+            return x
+
+        # Explicitly check for LastPass encryption signature
+        if x.startswith(b"!"):
+            try:
+                decrypted = EncryptManager.decrypt_aes256_auto(x, encryption_key)
+                return decrypted.decode("utf-8")
+            except Exception:
+                pass # Fallback to standard decode if decryption fails
+
+        # Default to standard UTF-8 for plain text
+        try:
+            return x.decode("utf-8")
+        except (UnicodeDecodeError, AttributeError):
+            return x
+
 
     @staticmethod
     def _parse_secret_type(payload, encryption_key):
@@ -168,10 +192,14 @@ class Vault:
                                                                 'base64': True}))
         data.update(Vault._transform_data_attributes(data,
                                                      secret.hex_decoded,
-                                                     EncryptManager.decode_hex))
+                                                     EncryptManager.try_decode,
+                                                     arguments={"encryption_key": encryption_key}))
+
         data.update(Vault._transform_data_attributes(data,
                                                      secret.decoded_attributes,
-                                                     lambda x: x.decode('utf-8')))
+                                                     #lambda x: x.decode("utf-8")))
+                                                     lambda x: Vault._utf8_or_decrypt(x, encryption_key)))
+
         data.update(Vault._transform_data_attributes(data,
                                                      secret.boolean_values,
                                                      lambda x: bool(int(x))))
@@ -228,7 +256,7 @@ class Vault:
                                                                               folder_entries)
                 # We want to skip any possible error so the process completes and we gather the errors so they can be
                 # troubleshoot
-                except Exception:  # noqa
+                except Exception as ex:  # noqa
                     self._logger.exception('Unable to decrypt chunk, adding to the error list.')
                     self.unable_to_decrypt.append((chunk, key))
                     continue
@@ -247,11 +275,11 @@ class Vault:
         return secrets, attachments, folder_entries, shared_folders
 
     @staticmethod
-    def _parse_url_rules(payload):
+    def _parse_url_rules(payload, key=None):
         stream = Stream(payload)
         attributes = ['url', 'exact_host', 'exact_port', 'case_insensitive']
         data = Vault._get_attribute_payload_data(stream, attributes)
-        data['url'] = EncryptManager.decode_hex(data['url'])
+        data['url'] = EncryptManager.try_decode(data['url'], key)
         data.update(Vault._transform_data_attributes(data,
                                                      attributes,
                                                      lambda x: x.decode('utf-8')))
@@ -262,12 +290,12 @@ class Vault:
         return UrlRule(**data)
 
     @staticmethod
-    def _get_url_rules(blob):
+    def _get_url_rules(blob, key=None):
         urul_chunks = Vault._get_chunks_by_id(blob, 'URUL')
-        return [Vault._parse_url_rules(chunk.payload) for chunk in urul_chunks]
+        return [Vault._parse_url_rules(chunk.payload, key) for chunk in urul_chunks]
 
     @staticmethod
-    def _parse_eqdns(payload):
+    def _parse_eqdns(payload, key=None):
         stream = Stream(payload)
         attributes = ['id', 'url']
         data = Vault._get_attribute_payload_data(stream, attributes)
@@ -275,15 +303,15 @@ class Vault:
                                                      attributes,
                                                      lambda x: x.decode('utf-8')))
         return EquivalentDomain(int(data.get('id')),
-                                EncryptManager.decode_hex(data.get('url')).decode('utf-8'))
+                                EncryptManager.try_decode(data.get('url'), key).decode('utf-8'))
 
     @staticmethod
-    def _get_eqdns(blob):
+    def _get_eqdns(blob, key=None):
         eqdn_chunks = Vault._get_chunks_by_id(blob, 'EQDN')
-        return [Vault._parse_eqdns(chunk.payload) for chunk in eqdn_chunks]
+        return [Vault._parse_eqdns(chunk.payload, key) for chunk in eqdn_chunks]
 
     @staticmethod
-    def _parse_never_urls(payload):
+    def _parse_never_urls(payload, key=None):
         stream = Stream(payload)
         attributes = ['id', 'url']
         data = Vault._get_attribute_payload_data(stream, attributes)
@@ -291,12 +319,12 @@ class Vault:
                                                      attributes,
                                                      lambda x: x.decode('utf-8')))
         return NeverUrl(int(data.get('id')),
-                        EncryptManager.decode_hex(data.get('url')).decode('utf-8'))
+                        EncryptManager.try_decode(data.get('url'), key).decode('utf-8'))
 
     @staticmethod
-    def _get_never_urls(blob):
+    def _get_never_urls(blob, key=None):
         never_urls_chunks = Vault._get_chunks_by_id(blob, 'NEVR')
-        return [Vault._parse_never_urls(chunk.payload) for chunk in never_urls_chunks]
+        return [Vault._parse_never_urls(chunk.payload, key) for chunk in never_urls_chunks]
 
     @staticmethod
     def _parse_attachment(payload):
@@ -322,8 +350,9 @@ class Vault:
             value = data.get(attribute)
             try:
                 transformed_data[attribute] = transformation(value, **arguments)
-            except Exception:  # noqa
-                LOGGER.error(f'Attribute :{attribute} with value: {value} for secret :{id_} cannot be transformed.')
+            except Exception as ex:  # noqa
+                LOGGER.error(f'Attribute :{attribute} with value: {value} by transformation {transformation}\nfor secret :{id_} cannot be transformed because:\n' + str(ex) + "\n")
+                transformed_data[attribute] = value #Add Default
         return transformed_data
 
     @staticmethod
@@ -373,7 +402,7 @@ class Vault:
         data = Vault._get_attribute_payload_data(stream, folder.attributes)
         data.update(Vault._transform_data_attributes(data,
                                                      folder.hex_decoded,
-                                                     EncryptManager.decode_hex))
+                                                     EncryptManager.try_decode))
         key = data.get('key')
         # Shared folder encryption key might come already in pre-decrypted form,
         # where it's only AES encrypted with the regular encryption key.
@@ -383,7 +412,7 @@ class Vault:
             hex_key = PKCS1_OAEP.new(rsa_key).decrypt(data.get('encrypted_key'))
         else:
             hex_key = EncryptManager.decrypt_aes256_auto(key, encryption_key)
-        key = EncryptManager.decode_hex(hex_key)
+        key = EncryptManager.try_decode(hex_key, encryption_key)
         data['key'] = key
         data['name'] = EncryptManager.decrypt_aes256_auto(data.get('encrypted_name'), key, base64=True).decode('utf-8')
         data.update(Vault._transform_data_attributes(data,

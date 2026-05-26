@@ -62,3 +62,4 @@ env
 
 # Visual studio code
 .vscode
+/.vs

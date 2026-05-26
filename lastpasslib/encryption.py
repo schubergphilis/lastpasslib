@@ -195,6 +195,94 @@ class EncryptManager:
         return os.urandom(byte_size)
 
     @staticmethod
+    def try_decode(data, encryption_key=None):
+        """Try to decode encoded string into raw bytes.
+        Check if Hex, Base64-AES or unknown
+        Unknown throws error
+
+        Args:
+            data: The data to decode
+            key[optional]: key to decode
+
+        Returns:
+            The decoded data on success.
+
+        Raises:
+            TypeError if the decoding is not possible.
+
+        """
+
+        
+        if any([data is None, data == b'', data == '']):
+            return None
+        
+        # Try decoding as Hex first
+        try:
+            return EncryptManager.decode_hex(data)
+        except Exception:
+            pass
+
+        # Try decoding via Base64-AES
+        try:
+            result = EncryptManager.decode_base64_aes(data, encryption_key)
+            # Ensure the result is valid before returning
+            if result is not None:
+                return result
+        except Exception:
+            pass
+
+        # Try AES256 auto-decryption as a last resort
+        try:
+            decrypted = EncryptManager.decrypt_aes256_auto(data, encryption_key)
+            return decrypted.decode("utf-8")
+        except Exception:
+            pass
+
+        # If all attempts fail, return the original data
+        return data
+
+    def decode_base64_aes(data, encryption_key=None):
+        """Decodes a Base64 AES encoded string into raw bytes.
+
+        Args:
+            data: The data to decode
+
+        Returns:
+            The decoded data on success.
+
+        Raises:
+            TypeError if the decoding is not possible.
+
+        """
+        if isinstance(data, (bytes, bytearray)):
+            data_str = data.decode("utf-8", errors="ignore")
+        else:
+            data_str = data
+
+        if data_str.startswith("!") and "|" in data_str:
+            if encryption_key is None:
+                raise TypeError(
+                    "Base64-AES need a key"
+                )
+
+            try:
+                iv_b64, cipher_b64 = data_str[1:].split("|", 1)
+
+                iv = b64decode(iv_b64)
+                cipher = b64decode(cipher_b64)
+
+                aes = AES.new(encryption_key, AES.MODE_CBC, iv)
+                plaintext = aes.decrypt(cipher)
+
+                pad_len = plaintext[-1]
+                decoded = plaintext[:-pad_len]
+
+                return decoded
+
+            except Exception as e:
+                raise TypeError(f"Data is not Base64-AES: {data}") from None
+
+    @staticmethod
     def decode_hex(data):
         """Decodes a hex encoded string into raw bytes.
 
@@ -244,12 +332,10 @@ class EncryptManager:
             A decrypted RSA key.
 
         """
-        decrypted = EncryptManager.decrypt_aes256_cbc(encryption_key[:16],
-                                                      EncryptManager.decode_hex(payload),
-                                                      encryption_key)
+        decrypted = EncryptManager.try_decode(payload, encryption_key)
         regex_match = br'^LastPassPrivateKey<(?P<hex_key>.*)>LastPassPrivateKey$'
         hex_key = re.match(regex_match, decrypted).group('hex_key')
-        rsa_key = RSA.importKey(EncryptManager.decode_hex(hex_key))
+        rsa_key = RSA.importKey(EncryptManager.try_decode(hex_key, encryption_key))
         rsa_key.dmp1 = rsa_key.d % (rsa_key.p - 1)
         rsa_key.dmq1 = rsa_key.d % (rsa_key.q - 1)
         rsa_key.iqmp = number.inverse(rsa_key.q, rsa_key.p)

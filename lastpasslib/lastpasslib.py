@@ -82,7 +82,6 @@ LOGGER_BASENAME = '''lastpasslib'''
 LOGGER = logging.getLogger(LOGGER_BASENAME)
 LOGGER.addHandler(logging.NullHandler())
 
-
 class Lastpass:
     """Models the main service and exposes the vault object and helper methods to interact and retrieve data."""
 
