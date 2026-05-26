@@ -127,3 +127,9 @@ History
 ------------------
 
 * testing release
+
+
+1.2.0 (26-05-2026)
+------------------
+
+* Fixed various encryption changes.
