@@ -1,7 +1,7 @@
 {
     "_meta": {
         "hash": {
-            "sha256": "9762bad2694dbb9ea4d9fe9e170976e74103cc99f22230d18612a77e12cdd826"
+            "sha256": "cd9d220d9b29c9ef240d1e75c50c2f3ca6973c553b2fe932ee097f13eb0c76ed"
         },
         "pipfile-spec": 6,
         "requires": {},
@@ -687,6 +687,14 @@
             "markers": "python_version >= '2.7' and python_version not in '3.0, 3.1, 3.2, 3.3, 3.4'",
             "version": "==10.0"
         },
+        "id": {
+            "hashes": [
+                "sha256:d0732d624fb46fd4e7bc4e5152f00214450953b9e772c182c1c22964def1a069",
+                "sha256:f5ec41ed2629a508f5d0988eda142e190c9c6da971100612c4de9ad9f9b237ca"
+            ],
+            "markers": "python_version >= '3.9'",
+            "version": "==1.6.1"
+        },
         "idna": {
             "hashes": [
                 "sha256:cc246e3a3f89580c3a951b5ad298ca4638078b2cdd4f115654332b5c26daded5",
@@ -1009,14 +1017,6 @@
             "index": "pypi",
             "markers": "python_version >= '3.9'",
             "version": "==2025.0.4"
-        },
-        "pkginfo": {
-            "hashes": [
-                "sha256:5cd957824ac36f140260964eba3c6be6442a8359b8c48f4adf90210f33a04b7b",
-                "sha256:c783ac885519cab2c34927ccfa6bf64b5a704d7c69afaea583dd9b7afe969343"
-            ],
-            "markers": "python_version >= '3.8'",
-            "version": "==1.12.1.2"
         },
         "platformdirs": {
             "hashes": [
@@ -1466,12 +1466,12 @@
         },
         "twine": {
             "hashes": [
-                "sha256:929bc3c280033347a00f847236564d1c52a3e61b1ac2516c97c48f3ceab756d8",
-                "sha256:9e102ef5fdd5a20661eb88fad46338806c3bd32cf1db729603fe3697b1bc83c8"
+                "sha256:418ebf08ccda9a8caaebe414433b0ba5e25eb5e4a927667122fbe8f829f985d8",
+                "sha256:e5ed0d2fd70c9959770dce51c8f39c8945c574e18173a7b81802dab51b4b75cf"
             ],
             "index": "pypi",
-            "markers": "python_version >= '3.7'",
-            "version": "==4.0.2"
+            "markers": "python_version >= '3.9'",
+            "version": "==6.2.0"
         },
         "typing-extensions": {
             "hashes": [
