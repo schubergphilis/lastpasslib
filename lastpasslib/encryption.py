@@ -197,8 +197,9 @@ class EncryptManager:
     @staticmethod
     def try_decode(data, encryption_key=None):
         """Try to decode encoded string into raw bytes.
-        Check if Hex, Base64-AES or unknown
-        Unknown throws error
+
+        Check if Hex, Base64-AES or unknown.
+        Unknown throws error.
 
         Args:
             data: The data to decode
@@ -211,11 +212,9 @@ class EncryptManager:
             TypeError if the decoding is not possible.
 
         """
-
-        
         if any([data is None, data == b'', data == '']):
             return None
-        
+
         # Try decoding as Hex first
         try:
             return EncryptManager.decode_hex(data)
@@ -241,6 +240,7 @@ class EncryptManager:
         # If all attempts fail, return the original data
         return data
 
+    @staticmethod
     def decode_base64_aes(data, encryption_key=None):
         """Decodes a Base64 AES encoded string into raw bytes.
 
@@ -259,28 +259,28 @@ class EncryptManager:
         else:
             data_str = data
 
-        if data_str.startswith("!") and "|" in data_str:
-            if encryption_key is None:
-                raise TypeError(
-                    "Base64-AES need a key"
-                )
+        if not (data_str.startswith("!") and "|" in data_str):
+            return None
 
-            try:
-                iv_b64, cipher_b64 = data_str[1:].split("|", 1)
+        if encryption_key is None:
+            raise TypeError("Base64-AES need a key")
 
-                iv = b64decode(iv_b64)
-                cipher = b64decode(cipher_b64)
+        try:
+            iv_b64, cipher_b64 = data_str[1:].split("|", 1)
 
-                aes = AES.new(encryption_key, AES.MODE_CBC, iv)
-                plaintext = aes.decrypt(cipher)
+            iv = b64decode(iv_b64)
+            cipher = b64decode(cipher_b64)
 
-                pad_len = plaintext[-1]
-                decoded = plaintext[:-pad_len]
+            aes = AES.new(encryption_key, AES.MODE_CBC, iv)
+            plaintext = aes.decrypt(cipher)
 
-                return decoded
+            pad_len = plaintext[-1]
+            decoded = plaintext[:-pad_len]
 
-            except Exception as e:
-                raise TypeError(f"Data is not Base64-AES: {data}") from None
+            return decoded
+
+        except Exception:
+            raise TypeError(f"Data is not Base64-AES: {data}") from None
 
     @staticmethod
     def decode_hex(data):

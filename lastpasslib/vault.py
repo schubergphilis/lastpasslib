@@ -150,9 +150,9 @@ class Vault:
 
     @staticmethod
     def _utf8_or_decrypt(x, encryption_key):
-        """
-        Handles mixed data formats by checking for encryption signatures 
-        before attempting decryption.
+        """Handle mixed data formats.
+
+        Check for encryption signatures before attempting decryption.
         """
         if x is None or isinstance(x, str):
             return x
@@ -163,14 +163,13 @@ class Vault:
                 decrypted = EncryptManager.decrypt_aes256_auto(x, encryption_key)
                 return decrypted.decode("utf-8")
             except Exception:
-                pass # Fallback to standard decode if decryption fails
+                pass  # Fallback to standard decode if decryption fails
 
         # Default to standard UTF-8 for plain text
         try:
             return x.decode("utf-8")
         except (UnicodeDecodeError, AttributeError):
             return x
-
 
     @staticmethod
     def _parse_secret_type(payload, encryption_key):
@@ -197,7 +196,6 @@ class Vault:
 
         data.update(Vault._transform_data_attributes(data,
                                                      secret.decoded_attributes,
-                                                     #lambda x: x.decode("utf-8")))
                                                      lambda x: Vault._utf8_or_decrypt(x, encryption_key)))
 
         data.update(Vault._transform_data_attributes(data,
@@ -351,8 +349,10 @@ class Vault:
             try:
                 transformed_data[attribute] = transformation(value, **arguments)
             except Exception as ex:  # noqa
-                LOGGER.error(f'Attribute :{attribute} with value: {value} by transformation {transformation}\nfor secret :{id_} cannot be transformed because:\n' + str(ex) + "\n")
-                transformed_data[attribute] = value #Add Default
+                LOGGER.error('Attribute: %s with value: %s by transformation %s\n'
+                             'for secret: %s cannot be transformed because:\n%s\n',
+                             attribute, value, transformation, id_, ex)
+                transformed_data[attribute] = value  # Add Default
         return transformed_data
 
     @staticmethod
