@@ -133,3 +133,9 @@ History
 ------------------
 
 * Fixed various encryption changes.
+
+
+1.2.1 (26-05-2026)
+------------------
+
+* Fix release.
